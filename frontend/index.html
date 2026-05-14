@@ -241,6 +241,13 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
 .btn-primary{border:none;background:var(--accent);color:var(--bg)}
 .btn-danger{border:1px solid var(--crt);background:transparent;color:var(--crt)}
 .btn-danger:hover{background:var(--crt);color:var(--bg)}
+
+.grupo-status{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
+.grupo-chip{font-size:9px;font-family:var(--mono);padding:2px 8px;border-radius:3px;border:1px solid var(--border);color:var(--gray2)}
+.grupo-chip.ok{border-color:rgba(52,211,153,.4);color:var(--ok)}
+.grupo-chip.today{border-color:rgba(125,211,252,.4);color:var(--accent)}
+.role-pcp_metal{background:rgba(251,191,36,.15);color:var(--atn)}
+.role-pcp_acab{background:rgba(129,140,248,.15);color:#818CF8}
 </style>
 </head>
 <body class="dark">
@@ -273,7 +280,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
   <div class="header">
     <div>
       <div class="h-label">[IND] capacidade de fabricação</div>
-      <div class="h-title">PROGRAMAÇÃO GERAL</div>
+      <div class="h-title">PROGRAMAÇÃO GERAL</div><div class="grupo-status" id="grupo-status"></div>
     </div>
     <div class="header-right">
       <div class="user-chip"><span id="chip-name">—</span><span class="role" id="chip-role">—</span><button class="logout-btn" onclick="doLogout()">sair</button></div>
@@ -288,7 +295,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
   </div>
   <div class="nav-tabs">
     <button class="nav-tab active" id="tab-cap" onclick="switchTab('cap')">Capacidade</button>
-    <button class="nav-tab" id="tab-prog" onclick="switchTab('prog')">Programação</button>
+    <button class="nav-tab" id="tab-prog" onclick="switchTab('prog')">Programação</button><button class="nav-tab" id="tab-hist" onclick="switchTab('hist')">Histórico</button>
   </div>
   <div id="planta-view"><div class="sector-grid" id="sector-grid"></div></div>
   <div id="detail-view" style="display:none">
@@ -315,6 +322,15 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
       <th onclick="progSort('carga')" style="text-align:right">Carga (h)</th>
     </tr></thead><tbody id="prog-tbody"></tbody></table></div>
   </div>
+<div id="hist-view" style="display:none;padding:1rem 0">
+  <div style="font-size:14px;font-weight:600;color:var(--accent);margin-bottom:1rem;font-family:var(--mono)">Histórico de Programação por Semana</div>
+  <div id="hist-status" style="font-size:11px;color:var(--gray2);font-family:var(--mono);margin-bottom:12px"></div>
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:1rem">
+    <canvas id="hist-chart" width="800" height="320"></canvas>
+  </div>
+  <div id="hist-table" style="overflow-x:auto"></div>
+</div>
+
 </div>
 
 <div class="modal-overlay" id="emodal"><div class="modal"><div class="modal-hdr"><div class="modal-ttl">✎ Edição de Roteiro — INDIR</div><button class="modal-x" onclick="closeEditModal()">✕</button></div><div class="modal-bdy"><div class="edit-notice">⚠ <strong>Atenção:</strong> As edições alteram o INDIR e são registradas com usuário e timestamp no servidor.</div><div class="esb-row"><input class="esb-inp" id="esb-inp" type="text" placeholder="Buscar por código ou descrição..."><button class="esb-btn" id="esb-btn">Buscar</button></div><div class="eresults" id="eresults"><div class="eempty">Digite um código ou descrição e clique em Buscar.</div></div><div class="elog"><div class="elog-ttl">Histórico de edições</div><div class="elog-list" id="elog-list"><div class="elog-item"><span class="elog-txt">Nenhuma edição realizada ainda.</span></div></div></div></div></div></div>
@@ -456,8 +472,8 @@ async function loadAdminUsers(){
   body.innerHTML='<p style="font-size:11px;color:var(--gray2);font-family:var(--mono)">Carregando...</p>';
   try{
     var users=await apiGet('/api/users');
-    var rL={'admin':'role-admin','pcp':'role-pcp','fabricacao':'role-fabricacao'};
-    var rN={'admin':'Admin','pcp':'PCP','fabricacao':'Fabricação'};
+    var rL={'admin':'role-admin','pcp_metal':'role-pcp_metal','pcp_acab':'role-pcp_acab','fabricacao':'role-fabricacao'};
+    var rN={'admin':'Admin','pcp_metal':'PCP Metalmecânica','pcp_acab':'PCP Acabamento','fabricacao':'Fabricação'};
     var h='<div style="margin-bottom:16px">';
     h+='<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:10px">Usuários cadastrados</div>';
     h+='<div style="display:grid;grid-template-columns:120px 1fr 90px 80px 80px;gap:10px;padding:4px 0;border-bottom:1px solid var(--border);font-size:9px;color:var(--gray2);font-family:var(--mono);text-transform:uppercase"><span>Usuário</span><span>Nome</span><span>Perfil</span><span>Status</span><span></span></div>';
@@ -474,7 +490,7 @@ async function loadAdminUsers(){
     h+='<div style="border-top:1px solid var(--border);padding-top:16px">';
     h+='<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:10px">Novo usuário</div>';
     h+='<div class="form-row"><input class="form-inp" id="nu-user" placeholder="Usuário"><input class="form-inp" id="nu-name" placeholder="Nome completo"></div>';
-    h+='<div class="form-row"><input class="form-inp" id="nu-pass" type="password" placeholder="Senha"><select class="form-sel" id="nu-role"><option value="pcp">PCP</option><option value="fabricacao">Fabricação</option><option value="admin">Admin</option></select></div>';
+    h+='<div class="form-row"><input class="form-inp" id="nu-pass" type="password" placeholder="Senha"><select class="form-sel" id="nu-role"><option value="pcp_metal">PCP Metalmecânica</option><option value="pcp_acab">PCP Acabamento</option><option value="fabricacao">Fabricação</option><option value="admin">Admin</option></select></div>';
     h+='<button class="btn-sm btn-primary" style="padding:8px 20px" onclick="createUser()">Criar usuário</button>';
     h+='<div id="nu-err" style="font-size:11px;color:var(--crt);font-family:var(--mono);margin-top:6px"></div>';
     h+='</div>';
@@ -816,6 +832,17 @@ function renderProgTable(){
 }
 
 function switchTab(tab){
+  document.querySelectorAll('.nav-tab').forEach(function(b){b.classList.remove('active');});
+  var btn=document.getElementById('tab-'+tab);if(btn)btn.classList.add('active');
+  document.getElementById('planta-view').style.display='none';
+  document.getElementById('detail-view').style.display='none';
+  document.getElementById('prog-view').style.display='none';
+  var hv=document.getElementById('hist-view');if(hv)hv.style.display='none';
+  if(tab==='cap'){document.getElementById('planta-view').style.display='block';}
+  else if(tab==='prog'){document.getElementById('prog-view').style.display='block';renderProgTable();}
+  else if(tab==='hist'){if(hv)hv.style.display='block';loadHistorico();}
+}
+function _switchTab(tab){
   document.querySelectorAll('.nav-tab').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById('tab-'+tab).classList.add('active');
 
@@ -845,6 +872,212 @@ buildSetorOptions();
   });
 })();
 
+
+
+// ── CONTROLE DE ACESSO POR SETOR ─────────────────────────────────────────────
+var _userSetores = null; // null = todos, array = setores permitidos
+
+function canEditSetor(categoria){
+  if(!_userSetores) return true; // admin, fabricacao, visitante
+  return _userSetores.indexOf(categoria) >= 0;
+}
+
+function canUploadProg(){
+  var role = _user ? _user.role : 'visitante';
+  return role === 'admin' || role === 'pcp_metal' || role === 'pcp_acab';
+}
+
+// Sobrescrever showApp para setar setores do usuário
+var _origShowApp = showApp;
+showApp = function(){
+  _origShowApp();
+  if(_user && _user.setores){
+    _userSetores = _user.setores;
+  } else {
+    _userSetores = null;
+  }
+  // Esconder btn-prog para quem não pode fazer upload
+  if(!canUploadProg()){
+    var bp=document.getElementById('btn-prog');if(bp)bp.style.display='none';
+    var br=document.getElementById('btn-rot');if(br)br.style.display='none';
+  }
+};
+
+// ── STATUS DE GRUPOS NO HEADER ────────────────────────────────────────────────
+async function loadGrupoStatus(){
+  try{
+    var res = await apiGet('/api/data/prog/status');
+    var container = document.getElementById('grupo-status');
+    if(!container) return;
+    var rN = {'pcp_metal':'PCP Metalmecânica','pcp_acab':'PCP Acabamento','admin':'Admin'};
+    container.innerHTML = res.map(function(r){
+      var nome = rN[r.grupo] || r.grupo;
+      var ts = r.uploaded_at ? formatTs(r.uploaded_at) : '--';
+      var isToday = r.uploaded_at && r.uploaded_at.startsWith(new Date().toISOString().slice(0,10));
+      return '<span class="grupo-chip '+(isToday?'today':'ok')+'">'+nome+': '+ts+'</span>';
+    }).join('');
+  }catch(e){}
+}
+
+// ── HISTÓRICO ─────────────────────────────────────────────────────────────────
+var _historicoData = null;
+
+async function loadHistorico(){
+  var status = document.getElementById('hist-status');
+  if(status) status.textContent = 'Carregando histórico...';
+  try{
+    var res = await apiGet('/api/data/historico');
+    _historicoData = res;
+    renderHistorico(res);
+    if(status) status.textContent = res.length + ' registros encontrados';
+  }catch(ex){
+    if(status) status.textContent = 'Erro ao carregar histórico: '+ex.message;
+  }
+}
+
+function renderHistorico(data){
+  if(!data || !data.length){
+    document.getElementById('hist-table').innerHTML = '<p style="color:var(--gray2);font-family:var(--mono);font-size:11px">Nenhum histórico disponível ainda. Faça o primeiro upload de programação.</p>';
+    return;
+  }
+
+  // Agrupar por semana — somar horas de todos os grupos da mesma semana
+  var semanas = {};
+  var setoresAll = new Set();
+  data.forEach(function(r){
+    if(!semanas[r.semana]) semanas[r.semana] = {semana:r.semana, uploaded_at:r.uploaded_at, setores:{}};
+    Object.keys(r.setores||{}).forEach(function(s){
+      setoresAll.add(s);
+      semanas[r.semana].setores[s] = (semanas[r.semana].setores[s]||0) + (r.setores[s]||0);
+    });
+  });
+
+  var labels = Object.keys(semanas).sort(function(a,b){
+    return semanas[a].uploaded_at > semanas[b].uploaded_at ? 1 : -1;
+  });
+
+  var setoresList = Array.from(setoresAll).sort();
+  var cores = {
+    'SOLDA ELÉTRICA':'#FB923C',
+    'ESTAMPARIA':'#7DD3FC',
+    'PINTURA':'#818CF8',
+    'GALVANOPLASTIA':'#34D399',
+    'USINAGEM':'#FBBF24',
+    'MICRO/USINAGEM':'#F87171',
+  };
+
+  // Desenhar gráfico de linha no canvas
+  var canvas = document.getElementById('hist-chart');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+  canvas.width = canvas.parentElement.clientWidth - 32 || 800;
+  canvas.height = 320;
+  var W = canvas.width, H = canvas.height;
+  var pad = {top:30, right:20, bottom:60, left:60};
+  var chartW = W - pad.left - pad.right;
+  var chartH = H - pad.top - pad.bottom;
+
+  ctx.clearRect(0,0,W,H);
+
+  // Fundo
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg2') || '#0E1F35';
+  ctx.fillRect(0,0,W,H);
+
+  if(labels.length === 0) return;
+
+  // Max horas
+  var maxH = 0;
+  labels.forEach(function(sem){
+    setoresList.forEach(function(s){
+      var v = semanas[sem].setores[s]||0;
+      if(v > maxH) maxH = v;
+    });
+  });
+  maxH = Math.ceil(maxH / 50) * 50 || 100;
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for(var i=0;i<=5;i++){
+    var y = pad.top + chartH - (i/5)*chartH;
+    ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
+    ctx.fillStyle = 'rgba(148,163,184,0.6)';
+    ctx.font = '10px monospace';
+    ctx.fillText(Math.round(maxH*i/5)+'h', pad.left-36, y+4);
+  }
+
+  // Eixo X — labels semanas
+  ctx.fillStyle = 'rgba(148,163,184,0.7)';
+  ctx.font = '9px monospace';
+  labels.forEach(function(sem,i){
+    var x = pad.left + (i/(labels.length>1?labels.length-1:1))*chartW;
+    ctx.save();ctx.translate(x, pad.top+chartH+10);ctx.rotate(-Math.PI/4);
+    ctx.fillText(sem, 0, 0);ctx.restore();
+  });
+
+  // Linhas por setor
+  setoresList.forEach(function(s){
+    var cor = cores[s] || '#94A3B8';
+    ctx.strokeStyle = cor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    var started = false;
+    labels.forEach(function(sem,i){
+      var v = semanas[sem].setores[s]||0;
+      var x = pad.left + (i/(labels.length>1?labels.length-1:1))*chartW;
+      var y = pad.top + chartH - (v/maxH)*chartH;
+      if(!started){ctx.moveTo(x,y);started=true;}else{ctx.lineTo(x,y);}
+    });
+    ctx.stroke();
+
+    // Pontos
+    labels.forEach(function(sem,i){
+      var v = semanas[sem].setores[s]||0;
+      var x = pad.left + (i/(labels.length>1?labels.length-1:1))*chartW;
+      var y = pad.top + chartH - (v/maxH)*chartH;
+      ctx.fillStyle = cor;
+      ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
+    });
+  });
+
+  // Legenda
+  var lx = pad.left;
+  setoresList.forEach(function(s){
+    var cor = cores[s]||'#94A3B8';
+    ctx.fillStyle = cor;
+    ctx.fillRect(lx, 8, 12, 8);
+    ctx.fillStyle = 'rgba(226,232,240,0.8)';
+    ctx.font = '9px monospace';
+    ctx.fillText(s, lx+16, 16);
+    lx += ctx.measureText(s).width + 32;
+  });
+
+  // Tabela resumo
+  var tbl = '<table style="width:100%;font-size:10px;font-family:var(--mono);border-collapse:collapse;margin-top:8px">';
+  tbl += '<thead><tr style="border-bottom:1px solid var(--border)">';
+  tbl += '<th style="text-align:left;padding:6px;color:var(--gray2)">Semana</th>';
+  setoresList.forEach(function(s){ tbl += '<th style="text-align:right;padding:6px;color:var(--gray2)">'+s+'</th>'; });
+  tbl += '<th style="text-align:right;padding:6px;color:var(--gray2)">Total</th>';
+  tbl += '</tr></thead><tbody>';
+  labels.forEach(function(sem,i){
+    var total = 0;
+    tbl += '<tr style="border-bottom:1px solid rgba(30,58,95,.3)">';
+    tbl += '<td style="padding:5px 6px;color:var(--accent)">'+sem+'</td>';
+    setoresList.forEach(function(s){
+      var v = semanas[sem].setores[s]||0;
+      total += v;
+      tbl += '<td style="text-align:right;padding:5px 6px;color:var(--text2)">'+v.toFixed(1)+'h</td>';
+    });
+    tbl += '<td style="text-align:right;padding:5px 6px;color:var(--ok);font-weight:600">'+total.toFixed(1)+'h</td>';
+    tbl += '</tr>';
+  });
+  tbl += '</tbody></table>';
+  document.getElementById('hist-table').innerHTML = tbl;
+}
+
+// Chamar status de grupos ao carregar
+setTimeout(loadGrupoStatus, 2000);
+setInterval(loadGrupoStatus, 60000);
 
 tick();setInterval(tick,1000);
 renderTotais();
