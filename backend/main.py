@@ -8,19 +8,19 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional, List
 import sqlite3, json, os, shutil
- 
+
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.environ.get("SECRET_KEY", "alliage-pcp-secret-2026-change-in-prod")
 ALGORITHM  = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8h
- 
-DB_PATH   = os.environ.get("DB_PATH", "./data/pcp.db")
-DATA_PATH = os.environ.get("DATA_PATH", "./data")
- 
+
+DB_PATH   = os.environ.get("DB_PATH", "/tmp/pcp.db")
+DATA_PATH = os.environ.get("DATA_PATH", "/tmp")
+
 os.makedirs(DATA_PATH, exist_ok=True)
- 
+
 app = FastAPI(title="Alliage PCP", version="1.0.0")
- 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,10 +28,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
- 
+
 pwd_ctx   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2    = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
- 
+
 # ── DB ────────────────────────────────────────────────────────────────────────
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -40,7 +40,7 @@ def get_db():
         yield conn
     finally:
         conn.close()
- 
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -85,19 +85,19 @@ def init_db():
         )
     conn.commit()
     conn.close()
- 
+
 init_db()
- 
+
 # ── AUTH ──────────────────────────────────────────────────────────────────────
 def verify_password(plain, hashed):
     return pwd_ctx.verify(plain, hashed)
- 
+
 def create_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
- 
+
 def get_current_user(token: str = Depends(oauth2), db: sqlite3.Connection = Depends(get_db)):
     if not token:
         return None
@@ -110,7 +110,7 @@ def get_current_user(token: str = Depends(oauth2), db: sqlite3.Connection = Depe
         return None
     user = db.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
     return dict(user) if user else None
- 
+
 def require_role(*roles):
     def dep(user=Depends(get_current_user)):
         if not user:
@@ -119,7 +119,7 @@ def require_role(*roles):
             raise HTTPException(status_code=403, detail="Sem permissão")
         return user
     return dep
- 
+
 # ── ENDPOINTS AUTH ────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
 def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = Depends(get_db)):
@@ -129,13 +129,13 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = 
     token = create_token({"sub": user["username"]}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     return {"access_token": token, "token_type": "bearer",
             "user": {"username": user["username"], "full_name": user["full_name"], "role": user["role"]}}
- 
+
 @app.get("/api/auth/me")
 def me(user=Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Não autenticado")
     return {"username": user["username"], "full_name": user["full_name"], "role": user["role"]}
- 
+
 # ── ENDPOINTS DADOS ───────────────────────────────────────────────────────────
 @app.get("/api/data/prog")
 def get_prog(db: sqlite3.Connection = Depends(get_db)):
@@ -146,7 +146,7 @@ def get_prog(db: sqlite3.Connection = Depends(get_db)):
             "uploaded_by": row["uploaded_by"],
             "uploaded_at": row["uploaded_at"],
             "description": row["description"]}
- 
+
 @app.post("/api/data/prog")
 def upload_prog(payload: dict, user=Depends(require_role("admin","pcp")), db: sqlite3.Connection = Depends(get_db)):
     db.execute(
@@ -157,7 +157,7 @@ def upload_prog(payload: dict, user=Depends(require_role("admin","pcp")), db: sq
                (user["username"], "upload_prog", payload.get("description","")))
     db.commit()
     return {"ok": True}
- 
+
 @app.get("/api/data/roteiro")
 def get_roteiro(db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM roteiro_data ORDER BY id DESC LIMIT 1").fetchone()
@@ -166,7 +166,7 @@ def get_roteiro(db: sqlite3.Connection = Depends(get_db)):
     return {"data": json.loads(row["data_json"]),
             "uploaded_by": row["uploaded_by"],
             "uploaded_at": row["uploaded_at"]}
- 
+
 @app.post("/api/data/roteiro")
 def upload_roteiro(payload: dict, user=Depends(require_role("admin","pcp")), db: sqlite3.Connection = Depends(get_db)):
     db.execute(
@@ -177,25 +177,25 @@ def upload_roteiro(payload: dict, user=Depends(require_role("admin","pcp")), db:
                (user["username"], "upload_roteiro", ""))
     db.commit()
     return {"ok": True}
- 
+
 @app.post("/api/data/edit")
 def save_edit(payload: dict, user=Depends(require_role("admin","pcp","fabricacao")), db: sqlite3.Connection = Depends(get_db)):
     db.execute("INSERT INTO edit_log (user,action,detail) VALUES (?,?,?)",
                (user["username"], "edit_indir", json.dumps(payload)))
     db.commit()
     return {"ok": True}
- 
+
 @app.get("/api/data/log")
 def get_log(limit: int = 50, user=Depends(require_role("admin")), db: sqlite3.Connection = Depends(get_db)):
     rows = db.execute("SELECT * FROM edit_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
- 
+
 # ── ENDPOINTS USUÁRIOS (admin) ────────────────────────────────────────────────
 @app.get("/api/users")
 def list_users(user=Depends(require_role("admin")), db: sqlite3.Connection = Depends(get_db)):
     rows = db.execute("SELECT id,username,full_name,role,active,created_at FROM users").fetchall()
     return [dict(r) for r in rows]
- 
+
 @app.post("/api/users")
 def create_user(payload: dict, user=Depends(require_role("admin")), db: sqlite3.Connection = Depends(get_db)):
     try:
@@ -208,7 +208,7 @@ def create_user(payload: dict, user=Depends(require_role("admin")), db: sqlite3.
         return {"ok": True}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Usuário já existe")
- 
+
 @app.put("/api/users/{uid}")
 def update_user(uid: int, payload: dict, user=Depends(require_role("admin")), db: sqlite3.Connection = Depends(get_db)):
     sets, vals = [], []
@@ -225,13 +225,13 @@ def update_user(uid: int, payload: dict, user=Depends(require_role("admin")), db
     db.execute(f"UPDATE users SET {','.join(sets)} WHERE id=?", vals)
     db.commit()
     return {"ok": True}
- 
+
 @app.delete("/api/users/{uid}")
 def delete_user(uid: int, user=Depends(require_role("admin")), db: sqlite3.Connection = Depends(get_db)):
     db.execute("UPDATE users SET active=0 WHERE id=?", (uid,))
     db.commit()
     return {"ok": True}
- 
+
 # ── SERVIR FRONTEND ───────────────────────────────────────────────────────────
 frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
 if os.path.exists(frontend_path):
