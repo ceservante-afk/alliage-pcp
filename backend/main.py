@@ -81,7 +81,7 @@ def init_db():
     if not existing:
         c.execute(
             "INSERT INTO users (username, full_name, password_hash, role) VALUES (?,?,?,?)",
-            ("admin", "Administrador", pwd_ctx.hash("admin123"), "admin")
+            ("admin", "Administrador", pwd_ctx.hash("admin123"[:72]), "admin")
         )
     conn.commit()
     conn.close()
@@ -202,7 +202,7 @@ def create_user(payload: dict, user=Depends(require_role("admin")), db: sqlite3.
         db.execute(
             "INSERT INTO users (username,full_name,password_hash,role) VALUES (?,?,?,?)",
             (payload["username"], payload.get("full_name",""),
-             pwd_ctx.hash(payload["password"]), payload.get("role","fabricacao"))
+             pwd_ctx.hash(payload["password"][:72]), payload.get("role","fabricacao"))
         )
         db.commit()
         return {"ok": True}
@@ -218,7 +218,7 @@ def update_user(uid: int, payload: dict, user=Depends(require_role("admin")), db
             vals.append(payload[field])
     if "password" in payload:
         sets.append("password_hash=?")
-        vals.append(pwd_ctx.hash(payload["password"]))
+        vals.append(pwd_ctx.hash(payload["password"][:72]))
     if not sets:
         raise HTTPException(status_code=400, detail="Nada para atualizar")
     vals.append(uid)
