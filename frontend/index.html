@@ -492,17 +492,7 @@ async function loadAdminUsers(){
     h+='<div class="form-row"><input class="form-inp" id="nu-user" placeholder="Usuário"><input class="form-inp" id="nu-name" placeholder="Nome completo"></div>';
     h+='<div class="form-row"><input class="form-inp" id="nu-pass" type="password" placeholder="Senha"><select class="form-sel" id="nu-role"><option value="pcp_metal">PCP Metalmecânica</option><option value="pcp_acab">PCP Acabamento</option><option value="fabricacao">Fabricação</option><option value="admin">Admin</option></select></div>';
     h+='<button class="btn-sm btn-primary" style="padding:8px 20px" onclick="createUser()">Criar usuário</button>';
-    h+='<div id="nu-err" style="font-size:11px;color:var(--crt);font-family:var(--mono);margin-top:6px"></div>
-<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:16px">
-  <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">Mapa Galvanoplastia (BASE REAL)</div>
-  <div style="font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px">Aba "BASE REAL" com colunas: Cód. Material | TRATAMENTO</div>
-  <div class="upload-zone" style="padding:12px;margin-bottom:8px">
-    <input type="file" id="galva-map-file" accept=".xlsx,.xls">
-    <div style="font-size:11px;color:var(--gray2);font-family:var(--mono)">Clique para selecionar o arquivo Excel</div>
-  </div>
-  <div id="galva-map-status" style="font-size:10px;font-family:var(--mono);color:var(--gray2);margin-bottom:6px"></div>
-  <button class="btn-sm btn-primary" style="padding:7px 16px" onclick="uploadGalvaMap()">Carregar Mapa Galva</button>
-</div>';
+    h+='<div id="nu-err" style="font-size:11px;color:var(--crt);font-family:var(--mono);margin-top:6px"></div>';
     h+='</div>';
     body.innerHTML=h;
   }catch(ex){body.innerHTML='<p style="color:var(--crt);font-size:11px;font-family:var(--mono)">'+ex.message+'</p>';}
