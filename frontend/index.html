@@ -492,7 +492,17 @@ async function loadAdminUsers(){
     h+='<div class="form-row"><input class="form-inp" id="nu-user" placeholder="Usuário"><input class="form-inp" id="nu-name" placeholder="Nome completo"></div>';
     h+='<div class="form-row"><input class="form-inp" id="nu-pass" type="password" placeholder="Senha"><select class="form-sel" id="nu-role"><option value="pcp_metal">PCP Metalmecânica</option><option value="pcp_acab">PCP Acabamento</option><option value="fabricacao">Fabricação</option><option value="admin">Admin</option></select></div>';
     h+='<button class="btn-sm btn-primary" style="padding:8px 20px" onclick="createUser()">Criar usuário</button>';
-    h+='<div id="nu-err" style="font-size:11px;color:var(--crt);font-family:var(--mono);margin-top:6px"></div>';
+    h+='<div id="nu-err" style="font-size:11px;color:var(--crt);font-family:var(--mono);margin-top:6px"></div>
+<div style="border-top:1px solid var(--border);padding-top:14px;margin-top:16px">
+  <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">Mapa Galvanoplastia (BASE REAL)</div>
+  <div style="font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px">Aba "BASE REAL" com colunas: Cód. Material | TRATAMENTO</div>
+  <div class="upload-zone" style="padding:12px;margin-bottom:8px">
+    <input type="file" id="galva-map-file" accept=".xlsx,.xls">
+    <div style="font-size:11px;color:var(--gray2);font-family:var(--mono)">Clique para selecionar o arquivo Excel</div>
+  </div>
+  <div id="galva-map-status" style="font-size:10px;font-family:var(--mono);color:var(--gray2);margin-bottom:6px"></div>
+  <button class="btn-sm btn-primary" style="padding:7px 16px" onclick="uploadGalvaMap()">Carregar Mapa Galva</button>
+</div>';
     h+='</div>';
     body.innerHTML=h;
   }catch(ex){body.innerHTML='<p style="color:var(--crt);font-size:11px;font-family:var(--mono)">'+ex.message+'</p>';}
@@ -537,26 +547,103 @@ async function loadAdminLog(){
 
 // Upload prog — salvar no servidor
 var _origProgApply = null;
+// ── APLICAR PROGRAMAÇÃO COM VALIDAÇÃO ────────────────────────────────────────
 setTimeout(function(){
-  var applyBtn=document.getElementById('prog-apply');
-  if(applyBtn){
-    var _orig=applyBtn.onclick;
-    applyBtn.onclick=async function(){
-      if(!progData)return;
-      applyNewProg(progData);
-      setStatus('prog-status','ok','Aplicando no servidor...',true);
-      applyBtn.disabled=true;
-      try{
-        await apiPost('/api/data/prog',{data:window.__DATA__,description:'Upload via dashboard'});
-        setStatus('prog-status','ok','Programação aplicada e salva no servidor!',true);
-        setTimeout(function(){closeM('mprog');renderTotais();renderPlanta();},1200);
-      }catch(ex){
-        setStatus('prog-status','err','Salvo localmente. Erro no servidor: '+ex.message,true);
-        setTimeout(function(){closeM('mprog');renderTotais();renderPlanta();},2000);
+  var applyBtn = document.getElementById('prog-apply');
+  if(!applyBtn) return;
+
+  applyBtn.onclick = async function(){
+    if(!progData || !progData.length) return;
+
+    // Validar CTs por perfil
+    var role = _user ? _user.role : 'visitante';
+    var prefixos = _user && _user.prefixos ? _user.prefixos : null;
+
+    if(prefixos){
+      var invalidos = [];
+      progData.forEach(function(r){
+        if(r.ct && !prefixos.some(function(p){ return r.ct.indexOf(p)===0; })){
+          if(invalidos.indexOf(r.ct)<0) invalidos.push(r.ct);
+        }
+      });
+      if(invalidos.length>0){
+        setStatus('prog-status','err',
+          'Bloqueado: CTs nao permitidos para seu perfil: '+invalidos.join(', ')+
+          '. Remova esses itens e tente novamente.',true);
+        return;
       }
-    };
-  }
+    }
+
+    applyBtn.disabled = true;
+    setStatus('prog-status','info','Processando...', true);
+
+    // Para pcp_acab: itens sem CT precisam buscar no roteiro
+    var rowsToProcess = progData;
+    if(role === 'pcp_acab' || (prefixos && prefixos.indexOf('PINP')>=0)){
+      rowsToProcess = await resolverCtsAcab(progData);
+    }
+
+    // Aplicar localmente
+    applyNewProg(rowsToProcess);
+
+    // Salvar no servidor
+    var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    try{
+      await apiPost('/api/data/prog',{
+        data: window.__DATA__,
+        description: 'Upload via dashboard',
+        semana: semana,
+        grupo: role
+      });
+      setStatus('prog-status','ok','Programacao aplicada e salva para todos!',true);
+      setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); loadGrupoStatus(); },1200);
+    }catch(ex){
+      setStatus('prog-status','err','Erro ao salvar no servidor: '+ex.message+'. Dados aplicados localmente.',true);
+      setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); },2000);
+    }
+  };
 },200);
+
+// ── RESOLVER CTs PARA pcp_acab (sem CT na planilha) ──────────────────────────
+var _galvaMap = null;
+
+async function loadGalvaMap(){
+  try{
+    var res = await apiGet('/api/data/galvamap');
+    _galvaMap = res.map || {};
+  }catch(e){ _galvaMap = {}; }
+}
+
+async function resolverCtsAcab(rows){
+  if(!_galvaMap) await loadGalvaMap();
+  return rows.map(function(r){
+    if(r.ct) return r; // já tem CT
+    // Buscar no roteiro atual
+    var cod = r.c || r.cod || r.codigo || '';
+    // Verificar CTs no dashboard atual
+    var ctFound = null;
+    Object.keys(CTS).forEach(function(ct){
+      if(ctFound) return;
+      var prefOk = ct.startsWith('PINP')||ct.startsWith('PINL')||ct.startsWith('GALV');
+      if(!prefOk) return;
+      (CTS[ct].grupos||[]).forEach(function(g){
+        if(g.c===cod) ctFound=ct;
+      });
+    });
+    if(ctFound){
+      r.ct = ctFound;
+    } else {
+      // Para GALV, separar por mapa
+      var trat = _galvaMap[cod] || '';
+      r.ct = trat.toUpperCase().indexOf('ANOD')>=0 ? 'GALV-ANOD' : 'GALV-ZINC';
+    }
+    return r;
+  });
+}
+
+// Carregar mapa galva ao iniciar
+setTimeout(loadGalvaMap, 3000);
+
 
 // Auto-login se tiver token
 if(_token&&_user){showApp();loadData();}
@@ -1078,6 +1165,50 @@ function renderHistorico(data){
 // Chamar status de grupos ao carregar
 setTimeout(loadGrupoStatus, 2000);
 setInterval(loadGrupoStatus, 60000);
+
+
+// ── UPLOAD MAPA GALVA (admin) ─────────────────────────────────────────────────
+async function uploadGalvaMap(){
+  var fileEl = document.getElementById('galva-map-file');
+  var status = document.getElementById('galva-map-status');
+  if(!fileEl||!fileEl.files[0]){ if(status)status.textContent='Selecione um arquivo primeiro.'; return; }
+  if(typeof XLSX==='undefined'){ if(status)status.textContent='Biblioteca XLSX nao carregada.'; return; }
+  if(status)status.textContent='Lendo arquivo...';
+
+  var reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      var data = new Uint8Array(e.target.result);
+      var wb = XLSX.read(data,{type:'array'});
+      if(wb.SheetNames.indexOf('BASE REAL')<0){
+        if(status)status.textContent='Aba "BASE REAL" nao encontrada no arquivo.';return;
+      }
+      var ws = wb.Sheets['BASE REAL'];
+      var json = XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!json.length){ if(status)status.textContent='Aba BASE REAL vazia.';return;}
+
+      var keys = Object.keys(json[0]);
+      var codKey = keys.filter(function(k){return k.toLowerCase().indexOf('c')>=0&&k.toLowerCase().indexOf('d')>=0;})[0]||keys[0];
+      var tratKey = keys.filter(function(k){return k.toUpperCase().indexOf('TRAT')>=0;})[0];
+      if(!tratKey){ if(status)status.textContent='Coluna TRATAMENTO nao encontrada.';return;}
+
+      var map = {};
+      json.forEach(function(r){
+        var cod = String(r[codKey]||'').trim();
+        var trat = String(r[tratKey]||'').trim().toUpperCase();
+        if(cod&&trat) map[cod]=trat;
+      });
+
+      if(status)status.textContent='Salvando '+Object.keys(map).length+' registros...';
+      await apiPost('/api/data/galvamap',{map:map});
+      _galvaMap = map;
+      if(status)status.textContent='Mapa salvo: '+Object.keys(map).length+' codigos.';
+    }catch(ex){
+      if(status)status.textContent='Erro: '+ex.message;
+    }
+  };
+  reader.readAsArrayBuffer(fileEl.files[0]);
+}
 
 tick();setInterval(tick,1000);
 renderTotais();
