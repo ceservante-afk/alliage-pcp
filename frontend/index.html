@@ -552,62 +552,6 @@ async function loadAdminLog(){
 
 // Upload prog — salvar no servidor
 var _origProgApply = null;
-// ── APLICAR PROGRAMAÇÃO COM VALIDAÇÃO ────────────────────────────────────────
-setTimeout(function(){
-  var applyBtn = document.getElementById('prog-apply');
-  if(!applyBtn) return;
-
-  applyBtn.onclick = async function(){
-    if(!progData || !progData.length) return;
-
-    // Validar CTs por perfil
-    var role = _user ? _user.role : 'visitante';
-    var prefixos = _user && _user.prefixos ? _user.prefixos : null;
-
-    if(prefixos){
-      var invalidos = [];
-      progData.forEach(function(r){
-        if(r.ct && !prefixos.some(function(p){ return r.ct.indexOf(p)===0; })){
-          if(invalidos.indexOf(r.ct)<0) invalidos.push(r.ct);
-        }
-      });
-      if(invalidos.length>0){
-        setStatus('prog-status','err',
-          'Bloqueado: CTs nao permitidos para seu perfil: '+invalidos.join(', ')+
-          '. Remova esses itens e tente novamente.',true);
-        return;
-      }
-    }
-
-    applyBtn.disabled = true;
-    setStatus('prog-status','info','Processando...', true);
-
-    // Para pcp_acab: itens sem CT precisam buscar no roteiro
-    var rowsToProcess = progData;
-    if(role === 'pcp_acab' || (prefixos && prefixos.indexOf('PINP')>=0)){
-      rowsToProcess = await resolverCtsAcab(progData);
-    }
-
-    // Aplicar localmente
-    applyNewProg(rowsToProcess);
-
-    // Salvar no servidor
-    var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-    try{
-      await apiPost('/api/data/prog',{
-        data: window.__DATA__,
-        description: 'Upload via dashboard',
-        semana: semana,
-        grupo: role
-      });
-      setStatus('prog-status','ok','Programacao aplicada e salva para todos!',true);
-      setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); loadGrupoStatus(); },1200);
-    }catch(ex){
-      setStatus('prog-status','err','Erro ao salvar no servidor: '+ex.message+'. Dados aplicados localmente.',true);
-      setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); },2000);
-    }
-  };
-},200);
 
 // ── RESOLVER CTs PARA pcp_acab (sem CT na planilha) ──────────────────────────
 var _galvaMap = null;
@@ -1316,12 +1260,54 @@ document.getElementById('prog-file').onchange = function(ev){
   reader.readAsArrayBuffer(file);
 };
 
-document.getElementById('prog-apply').onclick = function(){
-  if(!progData) return;
-  applyNewProg(progData);
-  setStatus('prog-status','ok','✓ Programação aplicada com sucesso!',true);
-  document.getElementById('prog-apply').disabled = true;
-  setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); }, 1200);
+document.getElementById('prog-apply').onclick = async function(){
+  if(!progData || !progData.length) return;
+
+  var btn = document.getElementById('prog-apply');
+  var role = _user ? _user.role : 'visitante';
+  var prefixos = _user && _user.prefixos ? _user.prefixos : null;
+
+  // Validar CTs por perfil
+  if(prefixos){
+    var invalidos = [];
+    progData.forEach(function(r){
+      if(r.ct && !prefixos.some(function(p){ return r.ct.indexOf(p)===0; })){
+        if(invalidos.indexOf(r.ct)<0) invalidos.push(r.ct);
+      }
+    });
+    if(invalidos.length>0){
+      setStatus('prog-status','err','Bloqueado: CTs nao permitidos para seu perfil: '+invalidos.join(', '),true);
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  setStatus('prog-status','info','Processando e salvando...',true);
+
+  // Para pcp_acab: resolver CTs via roteiro + galva map
+  var rowsToProcess = progData;
+  if(prefixos && prefixos.indexOf('PINP')>=0){
+    rowsToProcess = await resolverCtsAcab(progData);
+  }
+
+  // Aplicar localmente
+  applyNewProg(rowsToProcess);
+
+  // Salvar no servidor
+  var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  try{
+    await apiPost('/api/data/prog',{
+      data: window.__DATA__,
+      description: 'Upload via dashboard',
+      semana: semana,
+      grupo: role
+    });
+    setStatus('prog-status','ok','Programacao salva para todos os usuarios!',true);
+    setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); loadGrupoStatus(); }, 1500);
+  }catch(ex){
+    setStatus('prog-status','err','Erro ao salvar no servidor: '+ex.message,true);
+    setTimeout(function(){ closeM('mprog'); renderTotais(); renderPlanta(); }, 2000);
+  }
 };
 
 function applyNewProg(rows){
