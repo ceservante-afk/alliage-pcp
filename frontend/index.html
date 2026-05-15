@@ -288,7 +288,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
       <div id="pcp-btns" style="display:none;flex-wrap:wrap;gap:6px;align-items:center">
         <button class="edit-btn" id="btn-prog">📄 Editar Programação</button>
         <button class="edit-btn" id="btn-rot">✎ Editar Roteiros (ZPP0002)</button>
-        <button class="edit-btn" id="btn-limpar" style="display:none">🗑 Limpar Programação</button>
+        <button class="edit-btn" id="btn-limpar" style="display:none" onclick="openLimpar()">🗑 Limpar Programação</button>
         <button class="edit-btn" id="btn-admin" style="display:none" onclick="openAdmin()">⚙ Admin</button>
       </div>
       <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()">resetar configs</button>
@@ -617,10 +617,7 @@ setTimeout(loadGalvaMap, 3000);
 
 // Auto-login se tiver token
 if(_token&&_user){showApp();loadData();}
-setTimeout(function(){
-  var bl=document.getElementById('btn-limpar');
-  if(bl) bl.onclick=openLimpar;
-},300);
+
 
 function initCtList(){
   var ctSel=document.getElementById('prog-ct');
