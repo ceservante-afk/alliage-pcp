@@ -288,6 +288,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
       <div id="pcp-btns" style="display:none;flex-wrap:wrap;gap:6px;align-items:center">
         <button class="edit-btn" id="btn-prog">📄 Editar Programação</button>
         <button class="edit-btn" id="btn-rot">✎ Editar Roteiros (ZPP0002)</button>
+        <button class="edit-btn" id="btn-limpar" style="display:none">🗑 Limpar Programação</button>
         <button class="edit-btn" id="btn-admin" style="display:none" onclick="openAdmin()">⚙ Admin</button>
       </div>
       <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()">resetar configs</button>
@@ -331,6 +332,23 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
   <div id="hist-table" style="overflow-x:auto"></div>
 </div>
 
+</div>
+
+
+<div class="modal-overlay2" id="mlimpar" style="display:none">
+  <div class="modal2" style="max-width:480px">
+    <div class="modal-hdr">
+      <div class="modal-ttl">🗑 Limpar Programação</div>
+      <button class="modal-x" onclick="closeM('mlimpar')">✕</button>
+    </div>
+    <div class="modal-bdy">
+      <div class="edit-notice" style="border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.08)">
+        ⚠ <strong>Atenção:</strong> Esta ação remove os dados de programação permanentemente para todos os usuários.
+      </div>
+      <div id="limpar-opcoes" style="margin-top:16px;display:flex;flex-direction:column;gap:8px"></div>
+      <div id="limpar-status" style="font-size:11px;font-family:var(--mono);margin-top:12px;min-height:16px"></div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="emodal"><div class="modal"><div class="modal-hdr"><div class="modal-ttl">✎ Edição de Roteiro — INDIR</div><button class="modal-x" onclick="closeEditModal()">✕</button></div><div class="modal-bdy"><div class="edit-notice">⚠ <strong>Atenção:</strong> As edições alteram o INDIR e são registradas com usuário e timestamp no servidor.</div><div class="esb-row"><input class="esb-inp" id="esb-inp" type="text" placeholder="Buscar por código ou descrição..."><button class="esb-btn" id="esb-btn">Buscar</button></div><div class="eresults" id="eresults"><div class="eempty">Digite um código ou descrição e clique em Buscar.</div></div><div class="elog"><div class="elog-ttl">Histórico de edições</div><div class="elog-list" id="elog-list"><div class="elog-item"><span class="elog-txt">Nenhuma edição realizada ainda.</span></div></div></div></div></div></div>
@@ -413,6 +431,9 @@ function showApp(){
     document.getElementById('btn-reset').style.display='inline-block';
   }
   if(role==='admin') document.getElementById('btn-admin').style.display='inline-block';
+  if(role==='admin'||role==='pcp_metal'||role==='pcp_acab'){
+    var bl=document.getElementById('btn-limpar');if(bl)bl.style.display='inline-block';
+  }
   if(role==='fabricacao'||role==='visitante'){
     var bp=document.getElementById('btn-prog');if(bp)bp.style.display='none';
     var br=document.getElementById('btn-rot');if(br)br.style.display='none';
@@ -596,6 +617,10 @@ setTimeout(loadGalvaMap, 3000);
 
 // Auto-login se tiver token
 if(_token&&_user){showApp();loadData();}
+setTimeout(function(){
+  var bl=document.getElementById('btn-limpar');
+  if(bl) bl.onclick=openLimpar;
+},300);
 
 function initCtList(){
   var ctSel=document.getElementById('prog-ct');
@@ -1157,6 +1182,113 @@ async function uploadGalvaMap(){
     }
   };
   reader.readAsArrayBuffer(fileEl.files[0]);
+}
+
+
+// ── LIMPAR PROGRAMAÇÃO ────────────────────────────────────────────────────────
+function openLimpar(){
+  var role = _user ? _user.role : '';
+  var opcoes = document.getElementById('limpar-opcoes');
+  var status = document.getElementById('limpar-status');
+  if(status) status.textContent = '';
+  if(!opcoes) return;
+
+  var setoresAtivos = Object.keys(SETORES||{});
+  var setoresPerm = null;
+  if(role==='pcp_metal') setoresPerm=['SOLDA ELÉTRICA','ESTAMPARIA','USINAGEM','MICRO/USINAGEM'];
+  else if(role==='pcp_acab') setoresPerm=['PINTURA','GALVANOPLASTIA'];
+
+  var setoresFiltrados = setoresPerm ?
+    setoresAtivos.filter(function(s){ return setoresPerm.indexOf(s)>=0; }) :
+    setoresAtivos;
+
+  opcoes.innerHTML='';
+
+  if(role==='admin'){
+    var btnTudo=document.createElement('button');
+    btnTudo.className='apply-btn';
+    btnTudo.style.background='var(--crt)';
+    btnTudo.style.borderColor='var(--crt)';
+    btnTudo.style.marginBottom='8px';
+    btnTudo.textContent='Limpar TUDO';
+    btnTudo.onclick=function(){ executarLimpeza(null); };
+    opcoes.appendChild(btnTudo);
+    var lbl=document.createElement('div');
+    lbl.style.cssText='font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px';
+    lbl.textContent='Ou selecione um setor:';
+    opcoes.appendChild(lbl);
+  }
+
+  if(!setoresFiltrados.length){
+    var msg=document.createElement('div');
+    msg.style.cssText='color:var(--gray2);font-size:11px;font-family:var(--mono)';
+    msg.textContent='Nenhum setor disponivel para limpar.';
+    opcoes.appendChild(msg);
+  } else {
+    setoresFiltrados.forEach(function(s){
+      var info=SETORES[s];
+      var carga=info?(info.carga_h||0).toFixed(1)+'h':'';
+      var btn=document.createElement('button');
+      btn.className='edit-btn';
+      btn.style.cssText='width:100%;text-align:left;padding:10px 14px;justify-content:space-between;display:flex';
+      btn.innerHTML='<span>'+s+'</span><span style="color:var(--gray2);font-size:10px">'+carga+'</span>';
+      btn.onclick=(function(setor){ return function(){ executarLimpeza(setor); }; })(s);
+      opcoes.appendChild(btn);
+    });
+  }
+
+  openM('mlimpar');
+}
+
+
+async function executarLimpeza(setor){
+  var status = document.getElementById('limpar-status');
+  var role = _user ? _user.role : '';
+
+  if(!confirm(setor ? 'Limpar programação de '+setor+'?' : 'Limpar TODA a programação?')) return;
+
+  if(!window.__DATA__ || !window.__DATA__.setores){
+    if(status) status.textContent = 'Nenhuma programação carregada.';
+    return;
+  }
+
+  if(status) status.textContent = 'Processando...';
+
+  // Clonar dados e remover setor(es)
+  var newData = JSON.parse(JSON.stringify(window.__DATA__));
+
+  if(setor){
+    // Remover setor específico
+    delete newData.setores[setor];
+    // Remover CTs do setor
+    Object.keys(newData.cts||{}).forEach(function(ct){
+      if((newData.cts[ct].categoria||'')=== setor) delete newData.cts[ct];
+    });
+  } else {
+    // Limpar tudo
+    newData.setores = {};
+    newData.cts = {};
+  }
+
+  // Aplicar localmente
+  window.__DATA__ = newData;
+  RAW = newData; CTS = newData.cts; SETORES = newData.setores;
+  applyOverrides(); renderTotais(); renderPlanta(); buildProgRows();
+
+  // Salvar no servidor
+  var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  try{
+    await apiPost('/api/data/prog',{
+      data: newData,
+      description: setor ? 'Limpeza: '+setor : 'Limpeza total',
+      semana: semana,
+      grupo: role
+    });
+    if(status) status.textContent = 'Programação limpa e salva.';
+    setTimeout(function(){ closeM('mlimpar'); loadGrupoStatus(); }, 1000);
+  }catch(ex){
+    if(status) status.textContent = 'Erro ao salvar: '+ex.message;
+  }
 }
 
 tick();setInterval(tick,1000);
