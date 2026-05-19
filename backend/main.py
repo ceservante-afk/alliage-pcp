@@ -44,17 +44,15 @@ def verify_password(p, stored):
 USE_PG = bool(DATABASE_URL)
 
 def get_pg_conn():
-    import pg8000.native
-    import urllib.parse
-    u = urllib.parse.urlparse(DATABASE_URL)
-    password = urllib.parse.unquote(u.password or "")
+    import pg8000.native, re, urllib.parse
+    m = re.match(r'postgresql://([^:]+):(.+)@([^:/]+):(\d+)/(.+)', DATABASE_URL)
+    if not m:
+        raise ValueError("DATABASE_URL invalida")
+    user, password, host, port, database = m.groups()
+    password = urllib.parse.unquote(password)
     return pg8000.native.Connection(
-        host=u.hostname,
-        port=u.port or 5432,
-        database=u.path.lstrip('/'),
-        user=u.username,
-        password=password,
-        ssl_context=True
+        host=host, port=int(port), database=database,
+        user=user, password=password, ssl_context=True
     )
 
 def get_sqlite_conn():
