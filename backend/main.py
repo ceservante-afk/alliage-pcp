@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-import json, os, hashlib, hmac, base64, sqlite3
+import json, os, hashlib, hmac, base64, sqlite3, re
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "alliage2026pcp")
 ALGORITHM  = "HS256"
@@ -44,7 +44,7 @@ def verify_password(p, stored):
 USE_PG = bool(DATABASE_URL)
 
 def get_pg_conn():
-    import pg8000.native, re, urllib.parse
+    import pg8000.native, urllib.parse
     m = re.match(r'postgresql://([^:]+):(.+)@([^:/]+):(\d+)/(.+)', DATABASE_URL)
     if not m:
         raise ValueError("DATABASE_URL invalida")
@@ -72,26 +72,33 @@ def get_db():
         try: yield conn
         finally: conn.close()
 
+def _to_pg(sql):
+    """Converte ? para :1, :2, :3 ... (formato pg8000.native)"""
+    count = 0
+    result = ""
+    for ch in sql:
+        if ch == "?":
+            count += 1
+            result += f":{count}"
+        else:
+            result += ch
+    return result
+
 class DB:
     def __init__(self, conn):
         self.conn = conn
         self.is_pg = USE_PG
 
-    def _sql(self, sql):
-        if self.is_pg:
-            return sql.replace("?", "%s")
-        return sql
-
     def exec(self, sql, params=()):
         if self.is_pg:
-            self.conn.run(self._sql(sql), list(params))
+            self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
         else:
             self.conn.execute(sql, params)
             self.conn.commit()
 
     def fetchone(self, sql, params=()):
         if self.is_pg:
-            rows = self.conn.run(self._sql(sql), list(params))
+            rows = self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
             if not rows: return None
             cols = [c['name'] for c in self.conn.columns]
             return dict(zip(cols, rows[0]))
@@ -103,7 +110,7 @@ class DB:
 
     def fetchall(self, sql, params=()):
         if self.is_pg:
-            rows = self.conn.run(self._sql(sql), list(params))
+            rows = self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
             cols = [c['name'] for c in self.conn.columns]
             return [dict(zip(cols,r)) for r in rows]
         else:
@@ -146,8 +153,10 @@ def init_db():
             conn.run(s)
         rows = conn.run("SELECT id FROM users WHERE username='admin'")
         if not rows:
-            conn.run("INSERT INTO users (username,full_name,password_hash,role) VALUES (%s,%s,%s,%s)",
-                     ["admin","Administrador",hash_password("admin123"),"admin"])
+            conn.run(
+                "INSERT INTO users (username,full_name,password_hash,role) VALUES (:1,:2,:3,:4)",
+                _1="admin", _2="Administrador", _3=hash_password("admin123"), _4="admin"
+            )
         conn.close()
     else:
         conn = get_sqlite_conn()
