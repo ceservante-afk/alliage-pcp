@@ -40,7 +40,6 @@ def verify_password(p, stored):
         return hmac.compare_digest(k, hashlib.pbkdf2_hmac("sha256",p.encode(),s,100000))
     except: return False
 
-# ── CONEXÃO COM BANCO ────────────────────────────────────────────────────────
 USE_PG = bool(DATABASE_URL)
 
 def get_pg_conn():
@@ -72,17 +71,19 @@ def get_db():
         try: yield conn
         finally: conn.close()
 
-def _to_pg(sql):
-    """Converte ? para :1, :2, :3 ... (formato pg8000.native)"""
+def pg_run(conn, sql, params=()):
+    """Executa query no pg8000 convertendo ? para $1,$2,..."""
     count = 0
     result = ""
     for ch in sql:
         if ch == "?":
             count += 1
-            result += f":{count}"
+            result += f"${count}"
         else:
             result += ch
-    return result
+    if params:
+        return conn.run(result, *params)
+    return conn.run(result)
 
 class DB:
     def __init__(self, conn):
@@ -91,14 +92,14 @@ class DB:
 
     def exec(self, sql, params=()):
         if self.is_pg:
-            self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
+            pg_run(self.conn, sql, params)
         else:
             self.conn.execute(sql, params)
             self.conn.commit()
 
     def fetchone(self, sql, params=()):
         if self.is_pg:
-            rows = self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
+            rows = pg_run(self.conn, sql, params)
             if not rows: return None
             cols = [c['name'] for c in self.conn.columns]
             return dict(zip(cols, rows[0]))
@@ -110,7 +111,7 @@ class DB:
 
     def fetchall(self, sql, params=()):
         if self.is_pg:
-            rows = self.conn.run(_to_pg(sql), **{f"_{i+1}": v for i, v in enumerate(params)})
+            rows = pg_run(self.conn, sql, params)
             cols = [c['name'] for c in self.conn.columns]
             return [dict(zip(cols,r)) for r in rows]
         else:
@@ -154,8 +155,8 @@ def init_db():
         rows = conn.run("SELECT id FROM users WHERE username='admin'")
         if not rows:
             conn.run(
-                "INSERT INTO users (username,full_name,password_hash,role) VALUES (:1,:2,:3,:4)",
-                _1="admin", _2="Administrador", _3=hash_password("admin123"), _4="admin"
+                "INSERT INTO users (username,full_name,password_hash,role) VALUES ($1,$2,$3,$4)",
+                "admin", "Administrador", hash_password("admin123"), "admin"
             )
         conn.close()
     else:
