@@ -10,7 +10,6 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "alliage2026pcp")
 ALGORITHM  = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480
 DB_PATH = "/tmp/pcp.db"
-
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 ROLE_SETORES = {
@@ -72,18 +71,20 @@ def get_db():
         finally: conn.close()
 
 def pg_run(conn, sql, params=()):
-    """Executa query no pg8000 convertendo ? para $1,$2,..."""
-    count = 0
-    result = ""
+    """
+    Converte ? para :p0, :p1, :p2 ... e executa no pg8000.native
+    que aceita named params via **kwargs
+    """
+    idx = 0
+    new_sql = ""
     for ch in sql:
         if ch == "?":
-            count += 1
-            result += f"${count}"
+            new_sql += f":p{idx}"
+            idx += 1
         else:
-            result += ch
-    if params:
-        return conn.run(result, *params)
-    return conn.run(result)
+            new_sql += ch
+    kwargs = {f"p{i}": v for i, v in enumerate(params)}
+    return conn.run(new_sql, **kwargs)
 
 class DB:
     def __init__(self, conn):
@@ -155,8 +156,8 @@ def init_db():
         rows = conn.run("SELECT id FROM users WHERE username='admin'")
         if not rows:
             conn.run(
-                "INSERT INTO users (username,full_name,password_hash,role) VALUES ($1,$2,$3,$4)",
-                "admin", "Administrador", hash_password("admin123"), "admin"
+                "INSERT INTO users (username,full_name,password_hash,role) VALUES (:p0,:p1,:p2,:p3)",
+                p0="admin", p1="Administrador", p2=hash_password("admin123"), p3="admin"
             )
         conn.close()
     else:
