@@ -1470,7 +1470,7 @@ var _eov={};
 try{var _sl=localStorage.getItem("elog");if(_sl)_elog=JSON.parse(_sl);}catch(ex){}
 try{var _so=localStorage.getItem("eov");if(_so)_eov=JSON.parse(_so);}catch(ex){}
 
-function applyOverrides(){
+(function applyOverrides(){
   Object.keys(_eov).forEach(function(key){
     var p=key.split("||"),cod=p[0],ct=p[1],idx=parseInt(p[2]);
     var d=CTS[ct];if(!d)return;
@@ -1492,7 +1492,7 @@ function applyOverrides(){
     for(var ti=0;ti<s.cts.length;ti++){var c=CTS[s.cts[ti]];if(c)sum+=c.carga_total_h;}
     s.carga_h=Math.round(sum*100)/100;
   }
-}
+})();
 
 function openEditModal(){
   document.getElementById("emodal").classList.add("open");
