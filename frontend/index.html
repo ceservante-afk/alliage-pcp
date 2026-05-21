@@ -290,7 +290,8 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
         <button class="edit-btn" id="btn-rot">✎ Editar Roteiros (ZPP0002)</button>
         <button class="edit-btn" id="btn-admin" style="display:none" onclick="openAdmin()">⚙ Admin</button>
       </div>
-      <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()">resetar configs</button>
+      <button class="edit-btn" id="btn-reset-prog" style="display:none" onclick="resetProg()">🗑 Resetar Programação</button>
+      <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()" hidden>resetar configs</button>
     </div>
   </div>
   <div class="nav-tabs">
@@ -410,7 +411,9 @@ function showApp(){
   document.getElementById('chip-role').textContent=role;
   if(role!=='visitante'){
     document.getElementById('pcp-btns').style.display='flex';
-    document.getElementById('btn-reset').style.display='inline-block';
+  }
+  if(role==='admin'||role==='pcp_metal'||role==='pcp_acab'){
+    document.getElementById('btn-reset-prog').style.display='inline-block';
   }
   if(role==='admin') document.getElementById('btn-admin').style.display='inline-block';
   if(role==='fabricacao'||role==='visitante'){
@@ -439,7 +442,13 @@ function setSyncWarn(m){document.getElementById('sync-dot').className='sync-dot 
 function setSyncErr(m){document.getElementById('sync-dot').className='sync-dot err';document.getElementById('sync-info').textContent=m;}
 function formatTs(ts){
   if(!ts)return'';
-  try{var d=new Date(ts.replace(' ','T')+'Z');return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR');}catch(e){return ts;}
+  try{
+    var s=String(ts).trim();
+    var d=new Date(s);
+    if(isNaN(d.getTime())){s=s.replace(' ','T');if(s.indexOf('Z')<0&&s.indexOf('+',10)<0)s+='Z';d=new Date(s);}
+    if(isNaN(d.getTime()))return ts;
+    return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR');
+  }catch(e){return ts;}
 }
 
 // Polling 60s
@@ -595,20 +604,6 @@ setTimeout(loadGalvaMap, 3000);
 
 
 // Auto-login se tiver token
-if(_token&&_user){showApp();loadData();}
-
-function initCtList(){
-  var ctSel=document.getElementById('prog-ct');
-  if(!ctSel)return;
-  ctSel.innerHTML='<option value="">Todos os CTs</option>';
-  Object.keys(CTS).sort().forEach(function(ct){
-    var opt=document.createElement('option');
-    opt.value=ct;opt.textContent=ct+(CTS[ct].nome?' — '+CTS[ct].nome:'');
-    ctSel.appendChild(opt);
-  });
-}
-
-
 window.__DATA__=JSON.parse(document.getElementById("__json__").textContent);
 var RAW=window.__DATA__;
 var CTS=RAW.cts;
@@ -627,6 +622,20 @@ function gEfi(ct){return(ctCfg[ct].efi!==null?ctCfg[ct].efi:85)/100;}
 function capMin(ct){return gTur(ct)*gHpt(ct)*gDias(ct)*gEfi(ct)*60;}
 function cargaEfetiva(d){return d.carga_total_min||d.carga_min;}
 function getSemanaLabel(){var hoje=new Date(),dia=hoje.getDay(),diff=(dia===0?-6:1)-dia,seg=new Date(hoje);seg.setDate(hoje.getDate()+diff);var sex=new Date(seg);sex.setDate(seg.getDate()+4);var fmt=function(d){return('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2);};return 'SEMANA '+fmt(seg)+'–'+fmt(sex);}
+if(_token&&_user){showApp();loadData();}
+
+function initCtList(){
+  var ctSel=document.getElementById('prog-ct');
+  if(!ctSel)return;
+  ctSel.innerHTML='<option value="">Todos os CTs</option>';
+  Object.keys(CTS).sort().forEach(function(ct){
+    var opt=document.createElement('option');
+    opt.value=ct;opt.textContent=ct+(CTS[ct].nome?' — '+CTS[ct].nome:'');
+    ctSel.appendChild(opt);
+  });
+}
+
+
 function renderTotais(){var tC=0,tCap=0,tI=0;Object.keys(CTS).forEach(function(ct){tC+=cargaEfetiva(CTS[ct]);tCap+=capMin(ct);tI+=CTS[ct].n_itens;});var pct=tCap>0?(tC/tCap*100):0,col=gcol(pct);var _tot=document.getElementById('totais');if(_tot)_tot.innerHTML='<span style="color:'+col+';font-weight:700">'+pct.toFixed(1)+'%</span> &nbsp;|&nbsp; '+(tC/60).toFixed(0)+'h prog &nbsp;/&nbsp; '+(tCap/60).toFixed(0)+'h cap &nbsp;· '+tI+' itens';}
 function drawGauge(id,pct,pctProd){var c=document.getElementById(id);if(!c)return;var ctx=c.getContext('2d'),cx=55,cy=60,r=44,col=gcol(pct);ctx.clearRect(0,0,110,65);ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,2*Math.PI);ctx.strokeStyle='rgba(255,255,255,.08)';ctx.lineWidth=10;ctx.lineCap='round';ctx.stroke();if(pct>0){var endTotal=Math.PI+(Math.min(pct,110)/100)*Math.PI;if(pctProd!==undefined&&pctProd<pct){var endProd=Math.PI+(Math.min(pctProd,110)/100)*Math.PI;ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,endProd);ctx.strokeStyle='#7DD3FC';ctx.lineWidth=10;ctx.lineCap='round';ctx.stroke();ctx.beginPath();ctx.arc(cx,cy,r,endProd,endTotal);ctx.strokeStyle='#FBBF24';ctx.lineWidth=10;ctx.lineCap='round';ctx.stroke();ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,endTotal);ctx.strokeStyle=col+'22';ctx.lineWidth=16;ctx.stroke();}else{ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,endTotal);ctx.strokeStyle=col;ctx.lineWidth=10;ctx.lineCap='round';ctx.stroke();ctx.beginPath();ctx.arc(cx,cy,r,Math.PI,endTotal);ctx.strokeStyle=col+'33';ctx.lineWidth=16;ctx.stroke();}}}
 function renderPlanta(){var grid=document.getElementById('sector-grid');grid.innerHTML='';Object.keys(SETORES).forEach(function(cat){var s=SETORES[cat],cfg=CAT_CFG[cat]||{accent:'#94A3B8',icon:'#'},tC=0,tCap=0;s.cts.forEach(function(ct){tC+=cargaEfetiva(CTS[ct]);tCap+=capMin(ct);});var pct=tCap>0?(tC/tCap*100):0,col=gcol(pct);var semRot=s.cts.reduce(function(acc,ct){return acc+(CTS[ct].grupos||[]).filter(function(g){return g.ops.some(function(o){return o.i===0;});}).length;},0);var div=document.createElement('div');div.className='sector-block';div.style.borderColor=pct>=100?'rgba(248,113,113,.4)':pct>=80?'rgba(251,191,36,.4)':'var(--border)';var metaHtml=tC===0&&s.n_itens>0?'<div class="badge-sem-rot">⚠ SEM ROTEIRO CADASTRADO</div>':'<div class="s-bar-wrap"><div class="s-bar" style="width:'+Math.min(pct,100)+'%;background:'+col+'"></div></div><div class="s-pct" style="color:'+col+'">'+pct.toFixed(1)+'% · '+s.n_itens+' itens</div>';div.innerHTML='<div class="s-accent" style="background:linear-gradient(90deg,transparent,'+cfg.accent+',transparent)"></div><div class="s-label">'+cfg.icon+' setor</div><div class="s-name" style="color:'+cfg.accent+'">'+cat+'</div><div class="s-meta">'+s.cts.length+' CT'+(s.cts.length>1?'s':'')+' · '+(tC/60).toFixed(1)+'h prog. · cap. '+(tCap/60).toFixed(0)+'h</div>'+metaHtml+(semRot>0?'<div class="s-hint" style="color:var(--atn)">⚠ '+semRot+' item(ns) sem roteiro</div>':'<div class="s-hint">clique para detalhar →</div>');div.onclick=(function(c){return function(){showDetail(c);};})(cat);grid.appendChild(div);});}
@@ -1469,6 +1478,35 @@ var _elog=[];
 var _eov={};
 try{var _sl=localStorage.getItem("elog");if(_sl)_elog=JSON.parse(_sl);}catch(ex){}
 try{var _so=localStorage.getItem("eov");if(_so)_eov=JSON.parse(_so);}catch(ex){}
+
+async function resetProg(){
+  var role=_user?_user.role:'visitante';
+  var prefixos=_user&&_user.prefixos?_user.prefixos:null;
+  var ctsFiltrados=Object.keys(CTS).filter(function(ct){
+    if(role==='admin')return true;
+    if(!prefixos)return false;
+    return prefixos.some(function(p){return ct.indexOf(p)===0;});
+  });
+  if(!ctsFiltrados.length){alert('Nenhum CT no seu escopo.');return;}
+  var area=role==='admin'?'TODA A PROGRAMACAO':'sua area';
+  if(!confirm('Zerar '+area+'?\nCTs ficam sem itens programados mas a estrutura e mantida.'))return;
+  ctsFiltrados.forEach(function(ct){
+    var d=CTS[ct];if(!d)return;
+    d.grupos=[];d.carga_min=0;d.carga_h=0;d.n_itens=0;
+    d.setup_min=0;d.setup_h=0;d.carga_total_min=0;d.carga_total_h=0;
+  });
+  Object.keys(SETORES).forEach(function(cat){
+    var sum=0,n=0;
+    SETORES[cat].cts.forEach(function(ct){if(CTS[ct]){sum+=CTS[ct].carga_total_h;n+=CTS[ct].n_itens;}});
+    SETORES[cat].carga_h=Math.round(sum*100)/100;SETORES[cat].n_itens=n;
+  });
+  renderTotais();renderPlanta();
+  var semana='Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  try{
+    await apiPost('/api/data/prog',{data:window.__DATA__,description:'Reset — '+area,semana:semana,grupo:role});
+    setSyncOk('Programacao zerada e salva.');loadGrupoStatus();
+  }catch(ex){setSyncErr('Erro: '+ex.message);}
+}
 
 (function applyOverrides(){
   Object.keys(_eov).forEach(function(key){
