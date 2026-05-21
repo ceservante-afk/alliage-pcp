@@ -76,12 +76,6 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
 .gauge-unit{font-size:9px;opacity:.7}
 .gauge-abs{text-align:center;font-size:8px;color:var(--gray);font-family:var(--mono);margin-bottom:6px}
 
-/* CT CONFIG */
-.ct-config{border-top:1px solid var(--border);padding-top:8px;margin-top:4px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
-.ct-cfg-label{font-size:8px;color:var(--gray2);text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono);margin-bottom:2px}
-.ct-cfg-input{width:100%;padding:3px 6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--accent);font-family:var(--mono);outline:none;transition:border-color .15s;border-radius:2px}
-.ct-cfg-input:focus{border-color:var(--accent)}
-.ct-efi-row{grid-column:1/-1;margin-top:2px}
 .ct-saldo{font-size:10px;font-weight:600;text-align:center;margin-top:6px;font-family:var(--mono)}
 
 /* ITEMS */
@@ -99,7 +93,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
 /* PRINT */
 @media print{
   body{background:#fff!important;color:#000!important}
-  .ct-config,.items-panel,.back-btn,.reset-btn,.items-filter{display:none!important}
+  .items-panel,.back-btn,.items-filter{display:none!important}
   .sector-block,.ct-card{border:1px solid #ccc!important;background:#f9f9f9!important}
   .s-name,.ct-card-top{color:#000!important}
   .gauge-val{color:#000!important}
@@ -291,7 +285,6 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
         <button class="edit-btn" id="btn-admin" style="display:none" onclick="openAdmin()">⚙ Admin</button>
       </div>
       <button class="edit-btn" id="btn-reset-prog" style="display:none" onclick="resetProg()">🗑 Resetar Programação</button>
-      <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()">resetar configs</button>
     </div>
   </div>
   <div class="nav-tabs">
@@ -411,7 +404,6 @@ function showApp(){
   document.getElementById('chip-role').textContent=role;
   if(role!=='visitante'){
     document.getElementById('pcp-btns').style.display='flex';
-    document.getElementById('btn-reset').style.display='inline-block';
   }
   if(role==='admin'||role==='pcp_metal'||role==='pcp_acab'){
     document.getElementById('btn-reset-prog').style.display='inline-block';
@@ -445,15 +437,9 @@ function formatTs(ts){
   if(!ts)return'';
   try{
     var s=String(ts).trim();
-    // Tenta ISO direto
     var d=new Date(s);
-    if(isNaN(d.getTime())){
-      // Tenta substituir espaço por T e adiciona Z se não tiver timezone
-      s=s.replace(' ','T');
-      if(!s.match(/[Z+\-]\d*$/)) s+='Z';
-      d=new Date(s);
-    }
-    if(isNaN(d.getTime())) return ts;
+    if(isNaN(d.getTime())){s=s.replace(' ','T');if(s.indexOf('Z')<0&&s.indexOf('+',10)<0)s+='Z';d=new Date(s);}
+    if(isNaN(d.getTime()))return ts;
     return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR');
   }catch(e){return ts;}
 }
@@ -630,71 +616,15 @@ var RAW=window.__DATA__;
 var CTS=RAW.cts;
 var SETORES=RAW.setores;
 var CAT_CFG={'ESTAMPARIA':{accent:'#7DD3FC',icon:'⬡'},'USINAGEM':{accent:'#34D399',icon:'⚙'},'MICRO/USINAGEM':{accent:'#FBBF24',icon:'◈'},'PINTURA':{accent:'#818CF8',icon:'▣'},'GALVANOPLASTIA':{accent:'#34D399',icon:'◉'},'SOLDA ELÉTRICA':{accent:'#FB923C',icon:'⚡'}};
-var ctCfg={};
-Object.keys(CTS).forEach(function(ct){ctCfg[ct]={tur:null,hpt:null,dias:null,efi:null};});
-(function loadSaved(){try{var s=localStorage.getItem('ctCfg');if(s){var p=JSON.parse(s);Object.keys(p).forEach(function(ct){if(ctCfg[ct])ctCfg[ct]=p[ct];});}}catch(e){}})();
-function saveCfg(){try{localStorage.setItem('ctCfg',JSON.stringify(ctCfg));}catch(e){}}
-async function resetProg(){
-  var role = _user ? _user.role : 'visitante';
-  var prefixos = _user && _user.prefixos ? _user.prefixos : null;
-
-  // Definir escopo de CTs a zerar
-  var ctsFiltrados = Object.keys(CTS).filter(function(ct){
-    if(role === 'admin') return true; // admin zera tudo
-    if(!prefixos) return false;
-    return prefixos.some(function(p){ return ct.indexOf(p)===0; });
-  });
-
-  if(!ctsFiltrados.length){ alert('Nenhum CT no seu escopo.'); return; }
-
-  var area = role === 'admin' ? 'TODA A PROGRAMAÇÃO' : 'sua área ('+ctsFiltrados.join(', ')+')';
-  if(!confirm('Zerar ' + area + '?\n\nOs CTs ficam sem itens programados mas a estrutura é mantida.')) return;
-
-  // Zerar grupos de cada CT no escopo
-  ctsFiltrados.forEach(function(ct){
-    var d = CTS[ct];
-    if(!d) return;
-    d.grupos = [];
-    d.carga_min = 0; d.carga_h = 0; d.n_itens = 0;
-    d.carga_total_min = d.setup_min || 0;
-    d.carga_total_h = Math.round((d.setup_min||0)/60*100)/100;
-  });
-
-  // Atualizar setores
-  Object.keys(SETORES).forEach(function(cat){
-    var sum=0, nitens=0;
-    SETORES[cat].cts.forEach(function(ct){
-      if(CTS[ct]){ sum+=CTS[ct].carga_total_h; nitens+=CTS[ct].n_itens; }
-    });
-    SETORES[cat].carga_h = Math.round(sum*100)/100;
-    SETORES[cat].n_itens = nitens;
-  });
-
-  renderTotais(); renderPlanta();
-
-  // Salvar no servidor
-  var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-  try{
-    await apiPost('/api/data/prog',{
-      data: window.__DATA__,
-      description: 'Reset de programação — '+area,
-      semana: semana,
-      grupo: role
-    });
-    setSyncOk('Programação zerada e salva.');
-    loadGrupoStatus();
-  }catch(ex){
-    setSyncErr('Erro ao salvar reset: '+ex.message);
-  }
+var HPT=8.8;var EFI=0.85;var MAX_TURNOS=3;
+var CAP_1T=HPT*EFI*60;
+var CAP_MAX=Math.min(MAX_TURNOS*CAP_1T,24*60);
+function turnosNecessarios(c){return Math.min(Math.ceil(c/CAP_1T),MAX_TURNOS);}
+function capMin(ct){
+  var d=CTS[ct];if(!d)return CAP_MAX;
+  var ce=cargaEfetiva(d);
+  return Math.min(Math.max(1,turnosNecessarios(ce))*CAP_1T,CAP_MAX);
 }
-
-function resetCfg(){if(!confirm('Resetar todas as configurações de CT?'))return;try{localStorage.removeItem('ctCfg');}catch(e){}Object.keys(ctCfg).forEach(function(ct){ctCfg[ct]={tur:null,hpt:null,dias:null,efi:null};});renderTotais();renderPlanta();var dv=document.getElementById('detail-view');if(dv.style.display!=='none'){showDetail(document.getElementById('d-title').textContent);}}
-function gcol(pct){return pct>=100?'#F87171':pct>=80?'#FBBF24':'#34D399';}
-function gTur(ct){return ctCfg[ct].tur!==null?ctCfg[ct].tur:2;}
-function gHpt(ct){return ctCfg[ct].hpt!==null?ctCfg[ct].hpt:8;}
-function gDias(ct){return ctCfg[ct].dias!==null?ctCfg[ct].dias:5;}
-function gEfi(ct){return(ctCfg[ct].efi!==null?ctCfg[ct].efi:85)/100;}
-function capMin(ct){return gTur(ct)*gHpt(ct)*gDias(ct)*gEfi(ct)*60;}
 function cargaEfetiva(d){return d.carga_total_min||d.carga_min;}
 function getSemanaLabel(){var hoje=new Date(),dia=hoje.getDay(),diff=(dia===0?-6:1)-dia,seg=new Date(hoje);seg.setDate(hoje.getDate()+diff);var sex=new Date(seg);sex.setDate(seg.getDate()+4);var fmt=function(d){return('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2);};return 'SEMANA '+fmt(seg)+'–'+fmt(sex);}
 function renderTotais(){var tC=0,tCap=0,tI=0;Object.keys(CTS).forEach(function(ct){tC+=cargaEfetiva(CTS[ct]);tCap+=capMin(ct);tI+=CTS[ct].n_itens;});var pct=tCap>0?(tC/tCap*100):0,col=gcol(pct);var _tot=document.getElementById('totais');if(_tot)_tot.innerHTML='<span style="color:'+col+';font-weight:700">'+pct.toFixed(1)+'%</span> &nbsp;|&nbsp; '+(tC/60).toFixed(0)+'h prog &nbsp;/&nbsp; '+(tCap/60).toFixed(0)+'h cap &nbsp;· '+tI+' itens';}
@@ -755,30 +685,24 @@ function showDetail(cat){
     });
     var tblId='tbl_'+cid;
     // gauge-abs: breakdown prod+setup se tiver setup
+    var _turNec=(ce/CAP_1T).toFixed(1);
     var absHtml=d.setup_min>0
       ?'<div class="gauge-abs" id="ga_'+cid+'">'
         +'<span style="color:var(--accent)">'+d.carga_h.toFixed(1)+'h prod</span>'
         +' + <span style="color:var(--atn)">'+d.setup_h.toFixed(1)+'h setup</span>'
-        +' = '+(ce/60).toFixed(1)+'h / '+(cap/60).toFixed(0)+'h'
+        +' = '+(ce/60).toFixed(1)+'h · '+_turNec+'T nec.'
         +'</div>'
-      :'<div class="gauge-abs" id="ga_'+cid+'">'+d.carga_h.toFixed(1)+'h / '+(cap/60).toFixed(0)+'h</div>';
+      :'<div class="gauge-abs" id="ga_'+cid+'">'+(ce/60).toFixed(1)+'h · '+_turNec+'T nec.</div>';
     html+='<div class="ct-card" id="card_'+cid+'">'
       +'<div class="ct-card-top">'+ct+'</div>'
       +'<div style="font-size:9px;color:var(--gray);font-family:var(--font);margin-bottom:2px;font-weight:500">'+(d.nome||'')+'</div>'
-      +'<div class="ct-card-sub">'+d.n_itens+' itens \u00b7 '+(ce/60).toFixed(1)+'h total \u00b7 cap '+(cap/60).toFixed(0)+'h</div>'
+      +'<div class="ct-card-sub">'+d.n_itens+' itens \u00b7 '+(ce/60).toFixed(1)+'h \u00b7 '+(ce/CAP_1T).toFixed(1)+'T nec.</div>'
       +(semRot>0?'<div class="ct-sem-rot">\u26a0 '+semRot+' item(ns) sem roteiro</div>':'')
       +'<div class="gauge-wrap"><canvas id="'+cid+'" width="110" height="65"></canvas>'
       +'<div class="gauge-val" id="gv_'+cid+'" style="color:'+col+'">'+pct.toFixed(0)+'<span class="gauge-unit">%</span></div></div>'
       +absHtml
-      +'<div class="ct-config">'
-      +'<div><div class="ct-cfg-label">Turnos</div><input class="ct-cfg-input" type="number" min="1" max="3" step="1" value="'+gTur(ct)+'" oninput="updCt(\''+ct+'\',\'tur\',this)"></div>'
-      +'<div><div class="ct-cfg-label">H/turno</div><input class="ct-cfg-input" type="text" inputmode="decimal" value="'+gHpt(ct)+'" oninput="updCt(\''+ct+'\',\'hpt\',this)"></div>'
-      +'<div><div class="ct-cfg-label">Dias</div><input class="ct-cfg-input" type="number" min="1" max="10" step="1" value="'+gDias(ct)+'" oninput="updCt(\''+ct+'\',\'dias\',this)"></div>'
-      +'<div class="ct-efi-row"><div class="ct-cfg-label">Efici\u00eancia (%)</div>'
-      +'<input class="ct-cfg-input" type="number" min="1" max="100" step="1" value="'+Math.round(gEfi(ct)*100)+'" oninput="updCt(\''+ct+'\',\'efi\',this)" style="width:100%"></div>'
-      +'</div>'
       +'<div class="ct-saldo" id="sd_'+cid+'" style="color:'+col+'">'
-      +(ce>cap?'\u25b2 SOBRECARGA':'\u25bc DISPON\u00cdVEL')+' '+Math.abs(saldo/60).toFixed(1)+'h'
+      +(ce>cap?'\u25b2 SOBRECARGA (lim. '+MAX_TURNOS+'T)':'\u25bc DISPONIVEL')+' '+Math.abs(saldo/60).toFixed(1)+'h'
       +'</div>'
       +(grupos.length>0
         ?('<input class="items-filter" type="text" placeholder="Filtrar c\u00f3digo ou descri\u00e7\u00e3o..." oninput="filterTbl(\''+tblId+'\',this.value)">'
@@ -802,27 +726,7 @@ function showDetail(cat){
   },60);
 }
 function filterTbl(tblId,q){var rows=document.querySelectorAll('#'+tblId+' tbody tr');var ql=q.toLowerCase();rows.forEach(function(tr){tr.style.display=(!ql||tr.textContent.toLowerCase().includes(ql))?'':'none';});}
-function updCt(ct,field,input){
-  var raw=String(input.value).replace(',','.');
-  var val=parseFloat(raw);
-  if(isNaN(val)||val<=0)return;
-  ctCfg[ct][field]=val;
-  saveCfg();
-  var d=CTS[ct];if(!d)return;
-  var cap=capMin(ct),ce=cargaEfetiva(d),pct=cap>0?(ce/cap*100):0,col=gcol(pct);
-  var cid='g'+ct.replace(/-/g,'');
-  var pctProd2=cap>0?(d.carga_min/cap*100):0;
-  drawGauge(cid,pct,d.setup_min>0?pctProd2:undefined);
-  var gvel=document.getElementById('gv_'+cid);
-  if(gvel){gvel.innerHTML=pct.toFixed(0)+'<span class="gauge-unit">%</span>';gvel.style.color=col;}
-  var ga=document.getElementById('ga_'+cid);
-  if(ga){ga.textContent=(ce/60).toFixed(1)+'h / '+(cap/60).toFixed(0)+'h';}
-  var sd=document.getElementById('sd_'+cid);
-  if(sd){var s=cap-ce;sd.style.color=col;sd.textContent=(ce>cap?'▲ SOBRECARGA':'▼ DISPONÍVEL')+' '+Math.abs(s/60).toFixed(1)+'h';}
-  renderTotais();
-  renderPlanta();
-  renderRanking(document.getElementById('d-title').textContent);
-}
+
 function backToPlanta(){document.getElementById('planta-view').style.display='block';document.getElementById('detail-view').style.display='none';renderTotais();renderPlanta();}
 function tick(){var now=new Date();document.getElementById('clock').textContent=now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})+' · '+now.toLocaleTimeString('pt-BR');}
 // ── PROGRAMAÇÃO VIEW ─────────────────────────────────────────────────────────
@@ -1453,15 +1357,17 @@ function applyNewProg(rows){
     var cat   = CTS[ct] ? CTS[ct].categoria : 'OUTRO';
     var nome  = CTS[ct] ? CTS[ct].nome : '';
 
+    var _sMap={'ESTA-032':60,'ESTA-028':60,'ESTA-020':60,'ESTA-033':30,'ESTA-009':30};
+    var newSetup=(_sMap[ct]||0)*grupos.length;
     CTS[ct] = {
       ct:ct, categoria:cat, nome:nome,
       grupos:grupos,
       carga_min:Math.round(carga*100)/100,
       carga_h:Math.round(carga/60*100)/100,
       n_itens:grupos.length,
-      setup_min:setup, setup_h:Math.round(setup/60*100)/100,
-      carga_total_min:Math.round((carga+setup)*100)/100,
-      carga_total_h:Math.round((carga+setup)/60*100)/100,
+      setup_min:newSetup, setup_h:Math.round(newSetup/60*100)/100,
+      carga_total_min:Math.round((carga+newSetup)*100)/100,
+      carga_total_h:Math.round((carga+newSetup)/60*100)/100,
     };
   });
 
@@ -1539,6 +1445,35 @@ var _elog=[];
 var _eov={};
 try{var _sl=localStorage.getItem("elog");if(_sl)_elog=JSON.parse(_sl);}catch(ex){}
 try{var _so=localStorage.getItem("eov");if(_so)_eov=JSON.parse(_so);}catch(ex){}
+
+async function resetProg(){
+  var role=_user?_user.role:'visitante';
+  var prefixos=_user&&_user.prefixos?_user.prefixos:null;
+  var ctsFiltrados=Object.keys(CTS).filter(function(ct){
+    if(role==='admin')return true;
+    if(!prefixos)return false;
+    return prefixos.some(function(p){return ct.indexOf(p)===0;});
+  });
+  if(!ctsFiltrados.length){alert('Nenhum CT no seu escopo.');return;}
+  var area=role==='admin'?'TODA A PROGRAMACAO':'sua area';
+  if(!confirm('Zerar '+area+'?\nCTs ficam sem itens mas estrutura e mantida.'))return;
+  ctsFiltrados.forEach(function(ct){
+    var d=CTS[ct];if(!d)return;
+    d.grupos=[];d.carga_min=0;d.carga_h=0;d.n_itens=0;
+    d.setup_min=0;d.setup_h=0;d.carga_total_min=0;d.carga_total_h=0;
+  });
+  Object.keys(SETORES).forEach(function(cat){
+    var sum=0,n=0;
+    SETORES[cat].cts.forEach(function(ct){if(CTS[ct]){sum+=CTS[ct].carga_total_h;n+=CTS[ct].n_itens;}});
+    SETORES[cat].carga_h=Math.round(sum*100)/100;SETORES[cat].n_itens=n;
+  });
+  renderTotais();renderPlanta();
+  var semana='Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  try{
+    await apiPost('/api/data/prog',{data:window.__DATA__,description:'Reset — '+area,semana:semana,grupo:role});
+    setSyncOk('Programacao zerada e salva.');loadGrupoStatus();
+  }catch(ex){setSyncErr('Erro: '+ex.message);}
+}
 
 function applyOverrides(){
   Object.keys(_eov).forEach(function(key){
