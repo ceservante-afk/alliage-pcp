@@ -290,6 +290,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
         <button class="edit-btn" id="btn-rot">✎ Editar Roteiros (ZPP0002)</button>
         <button class="edit-btn" id="btn-admin" style="display:none" onclick="openAdmin()">⚙ Admin</button>
       </div>
+      <button class="edit-btn" id="btn-reset-prog" style="display:none" onclick="resetProg()">🗑 Resetar Programação</button>
       <button class="reset-btn" id="btn-reset" style="display:none" onclick="resetCfg()">resetar configs</button>
     </div>
   </div>
@@ -412,6 +413,9 @@ function showApp(){
     document.getElementById('pcp-btns').style.display='flex';
     document.getElementById('btn-reset').style.display='inline-block';
   }
+  if(role==='admin'||role==='pcp_metal'||role==='pcp_acab'){
+    document.getElementById('btn-reset-prog').style.display='inline-block';
+  }
   if(role==='admin') document.getElementById('btn-admin').style.display='inline-block';
   if(role==='fabricacao'||role==='visitante'){
     var bp=document.getElementById('btn-prog');if(bp)bp.style.display='none';
@@ -439,7 +443,19 @@ function setSyncWarn(m){document.getElementById('sync-dot').className='sync-dot 
 function setSyncErr(m){document.getElementById('sync-dot').className='sync-dot err';document.getElementById('sync-info').textContent=m;}
 function formatTs(ts){
   if(!ts)return'';
-  try{var d=new Date(ts.replace(' ','T')+'Z');return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR');}catch(e){return ts;}
+  try{
+    var s=String(ts).trim();
+    // Tenta ISO direto
+    var d=new Date(s);
+    if(isNaN(d.getTime())){
+      // Tenta substituir espaço por T e adiciona Z se não tiver timezone
+      s=s.replace(' ','T');
+      if(!s.match(/[Z+\-]\d*$/)) s+='Z';
+      d=new Date(s);
+    }
+    if(isNaN(d.getTime())) return ts;
+    return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR');
+  }catch(e){return ts;}
 }
 
 // Polling 60s
@@ -618,6 +634,60 @@ var ctCfg={};
 Object.keys(CTS).forEach(function(ct){ctCfg[ct]={tur:null,hpt:null,dias:null,efi:null};});
 (function loadSaved(){try{var s=localStorage.getItem('ctCfg');if(s){var p=JSON.parse(s);Object.keys(p).forEach(function(ct){if(ctCfg[ct])ctCfg[ct]=p[ct];});}}catch(e){}})();
 function saveCfg(){try{localStorage.setItem('ctCfg',JSON.stringify(ctCfg));}catch(e){}}
+async function resetProg(){
+  var role = _user ? _user.role : 'visitante';
+  var prefixos = _user && _user.prefixos ? _user.prefixos : null;
+
+  // Definir escopo de CTs a zerar
+  var ctsFiltrados = Object.keys(CTS).filter(function(ct){
+    if(role === 'admin') return true; // admin zera tudo
+    if(!prefixos) return false;
+    return prefixos.some(function(p){ return ct.indexOf(p)===0; });
+  });
+
+  if(!ctsFiltrados.length){ alert('Nenhum CT no seu escopo.'); return; }
+
+  var area = role === 'admin' ? 'TODA A PROGRAMAÇÃO' : 'sua área ('+ctsFiltrados.join(', ')+')';
+  if(!confirm('Zerar ' + area + '?\n\nOs CTs ficam sem itens programados mas a estrutura é mantida.')) return;
+
+  // Zerar grupos de cada CT no escopo
+  ctsFiltrados.forEach(function(ct){
+    var d = CTS[ct];
+    if(!d) return;
+    d.grupos = [];
+    d.carga_min = 0; d.carga_h = 0; d.n_itens = 0;
+    d.carga_total_min = d.setup_min || 0;
+    d.carga_total_h = Math.round((d.setup_min||0)/60*100)/100;
+  });
+
+  // Atualizar setores
+  Object.keys(SETORES).forEach(function(cat){
+    var sum=0, nitens=0;
+    SETORES[cat].cts.forEach(function(ct){
+      if(CTS[ct]){ sum+=CTS[ct].carga_total_h; nitens+=CTS[ct].n_itens; }
+    });
+    SETORES[cat].carga_h = Math.round(sum*100)/100;
+    SETORES[cat].n_itens = nitens;
+  });
+
+  renderTotais(); renderPlanta();
+
+  // Salvar no servidor
+  var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  try{
+    await apiPost('/api/data/prog',{
+      data: window.__DATA__,
+      description: 'Reset de programação — '+area,
+      semana: semana,
+      grupo: role
+    });
+    setSyncOk('Programação zerada e salva.');
+    loadGrupoStatus();
+  }catch(ex){
+    setSyncErr('Erro ao salvar reset: '+ex.message);
+  }
+}
+
 function resetCfg(){if(!confirm('Resetar todas as configurações de CT?'))return;try{localStorage.removeItem('ctCfg');}catch(e){}Object.keys(ctCfg).forEach(function(ct){ctCfg[ct]={tur:null,hpt:null,dias:null,efi:null};});renderTotais();renderPlanta();var dv=document.getElementById('detail-view');if(dv.style.display!=='none'){showDetail(document.getElementById('d-title').textContent);}}
 function gcol(pct){return pct>=100?'#F87171':pct>=80?'#FBBF24':'#34D399';}
 function gTur(ct){return ctCfg[ct].tur!==null?ctCfg[ct].tur:2;}
