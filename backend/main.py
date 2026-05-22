@@ -224,10 +224,51 @@ def me(user=Depends(get_current_user)):
 
 @app.get("/api/data/prog")
 def get_prog(db: DB=Depends(get_db_wrapper)):
-    row = db.fetchone("SELECT * FROM prog_data ORDER BY id DESC LIMIT 1")
-    if not row: raise HTTPException(404,"Nenhuma programacao carregada")
-    return {"data":json.loads(row["data_json"]),"uploaded_by":row["uploaded_by"],
-            "uploaded_at":row["uploaded_at"],"semana":row.get("semana"),"grupo":row.get("grupo")}
+    # Buscar o registro mais recente de cada grupo e mesclar os CTs
+    if USE_PG:
+        rows = db.fetchall(
+            "SELECT DISTINCT ON (grupo) grupo,data_json,uploaded_by,uploaded_at,semana "
+            "FROM prog_data ORDER BY grupo, id DESC"
+        )
+    else:
+        rows = db.fetchall(
+            "SELECT grupo,data_json,uploaded_by,uploaded_at,semana FROM prog_data "
+            "WHERE id IN (SELECT MAX(id) FROM prog_data GROUP BY grupo) ORDER BY id DESC"
+        )
+    if not rows:
+        raise HTTPException(404,"Nenhuma programacao carregada")
+
+    # Mesclar dados: CTs de cada grupo são independentes
+    merged_cts = {}
+    merged_setores = {}
+    last_row = rows[0]  # metadados do registro mais recente
+
+    for row in reversed(rows):  # mais antigos primeiro, mais recentes sobrescrevem
+        d = json.loads(row["data_json"])
+        merged_cts.update(d.get("cts") or {})
+        merged_setores.update(d.get("setores") or {})
+        last_row = row  # o último processado é o mais recente
+
+    # Recalcular carga dos setores com base nos CTs mesclados
+    for cat, setor in merged_setores.items():
+        total_h = 0
+        total_n = 0
+        for ct in setor.get("cts", []):
+            if ct in merged_cts:
+                total_h += merged_cts[ct].get("carga_total_h", 0)
+                total_n += merged_cts[ct].get("n_itens", 0)
+        setor["carga_h"] = round(total_h, 2)
+        setor["n_itens"] = total_n
+
+    merged_data = {"cts": merged_cts, "setores": merged_setores}
+
+    return {
+        "data": merged_data,
+        "uploaded_by": last_row["uploaded_by"],
+        "uploaded_at": last_row["uploaded_at"],
+        "semana": last_row.get("semana"),
+        "grupo": last_row.get("grupo")
+    }
 
 @app.get("/api/data/prog/status")
 def get_prog_status(db: DB=Depends(get_db_wrapper)):
