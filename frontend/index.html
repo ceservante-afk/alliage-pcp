@@ -1514,7 +1514,7 @@ async function resetProg(){
   }catch(ex){setSyncErr('Erro: '+ex.message);}
 }
 
-(function applyOverrides(){
+function applyOverrides(){
   Object.keys(_eov).forEach(function(key){
     var p=key.split("||"),cod=p[0],ct=p[1],idx=parseInt(p[2]);
     var d=CTS[ct];if(!d)return;
@@ -1536,7 +1536,7 @@ async function resetProg(){
     for(var ti=0;ti<s.cts.length;ti++){var c=CTS[s.cts[ti]];if(c)sum+=c.carga_total_h;}
     s.carga_h=Math.round(sum*100)/100;
   }
-})();
+}
 
 function openEditModal(){
   document.getElementById("emodal").classList.add("open");
