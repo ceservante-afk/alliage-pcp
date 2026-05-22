@@ -1413,6 +1413,9 @@ function applyNewProg(rows){
     SETORES[cat].carga_h  = Math.round(sum*100)/100;
     SETORES[cat].n_itens  = nitens;
   });
+  // Sincronizar window.__DATA__ para que o apiPost salve os dados atualizados
+  window.__DATA__ = {cts: CTS, setores: SETORES};
+  RAW = window.__DATA__;
 }
 
 // ── MODAL ROTEIRO — EXPORTAR ─────────────────────────────────────────────────
@@ -1500,6 +1503,9 @@ async function resetProg(){
     SETORES[cat].cts.forEach(function(ct){if(CTS[ct]){sum+=CTS[ct].carga_total_h;n+=CTS[ct].n_itens;}});
     SETORES[cat].carga_h=Math.round(sum*100)/100;SETORES[cat].n_itens=n;
   });
+  // Sincronizar window.__DATA__ antes de salvar
+  window.__DATA__ = {cts: CTS, setores: SETORES};
+  RAW = window.__DATA__;
   renderTotais();renderPlanta();
   var semana='Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
   try{
