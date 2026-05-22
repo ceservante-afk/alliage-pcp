@@ -608,6 +608,9 @@ window.__DATA__=JSON.parse(document.getElementById("__json__").textContent);
 var RAW=window.__DATA__;
 var CTS=RAW.cts;
 var SETORES=RAW.setores;
+// Roteiro base — preservado para sempre, nunca sobrescrito por upload/reset
+var ROTEIRO_BASE = JSON.parse(JSON.stringify(RAW.cts));
+
 var CAT_CFG={'ESTAMPARIA':{accent:'#7DD3FC',icon:'⬡'},'USINAGEM':{accent:'#34D399',icon:'⚙'},'MICRO/USINAGEM':{accent:'#FBBF24',icon:'◈'},'PINTURA':{accent:'#818CF8',icon:'▣'},'GALVANOPLASTIA':{accent:'#34D399',icon:'◉'},'SOLDA ELÉTRICA':{accent:'#FB923C',icon:'⚡'}};
 var ctCfg={};
 Object.keys(CTS).forEach(function(ct){ctCfg[ct]={tur:null,hpt:null,dias:null,efi:null};});
@@ -1335,20 +1338,19 @@ function applyNewProg(rows){
   // Para itens sem CT, tentar encontrar pelo roteiro atual
   function findCtFromRoteiro(cod, sheet){
     var cat = sheetCat[sheet] || '';
-    // Buscar no CTS atual o CT que tem esse código
-    var cts = Object.keys(CTS);
+    // Buscar sempre no roteiro base (preservado mesmo após reset)
+    var cts = Object.keys(ROTEIRO_BASE);
     for(var i=0;i<cts.length;i++){
       var ct = cts[i];
-      // Filtrar pelo setor da aba
-      if(cat && CTS[ct].categoria !== cat) continue;
-      var grupos = CTS[ct].grupos || [];
+      if(cat && ROTEIRO_BASE[ct].categoria !== cat) continue;
+      var grupos = ROTEIRO_BASE[ct].grupos || [];
       for(var j=0;j<grupos.length;j++){
         if(grupos[j].c === cod) return ct;
       }
     }
     // Fallback: qualquer CT do setor
     for(var i=0;i<cts.length;i++){
-      if(cat && CTS[cts[i]].categoria === cat) return cts[i];
+      if(cat && ROTEIRO_BASE[cts[i]].categoria === cat) return cts[i];
     }
     return null;
   }
@@ -1373,7 +1375,8 @@ function applyNewProg(rows){
   Object.keys(byct).forEach(function(ct){
     Object.keys(byct[ct]).forEach(function(cod){
       var g = byct[ct][cod];
-      var existCT = CTS[ct];
+      // Buscar INDIR sempre do roteiro base (nunca zerado por reset)
+      var existCT = ROTEIRO_BASE[ct] || CTS[ct];
       var existG  = existCT ? (existCT.grupos||[]).filter(function(x){return x.c===cod;})[0] : null;
       if(existG && existG.ops && existG.ops.length){
         g.ops = existG.ops.map(function(op){
