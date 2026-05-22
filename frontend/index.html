@@ -1391,9 +1391,11 @@ function applyNewProg(rows){
     var grupos = Object.values ? Object.values(byct[ct]) : Object.keys(byct[ct]).map(function(k){return byct[ct][k];});
     grupos.sort(function(a,b){return b.ct_total-a.ct_total;});
     var carga = grupos.reduce(function(s,g){return s+g.ct_total;},0);
-    var setup = CTS[ct] ? (CTS[ct].setup_min||0) : 0;
-    var cat   = CTS[ct] ? CTS[ct].categoria : 'OUTRO';
-    var nome  = CTS[ct] ? CTS[ct].nome : '';
+    // Setup dinâmico por CT de solda
+    var _setupMap = {'ESTA-032':60,'ESTA-028':60,'ESTA-020':60,'ESTA-033':30,'ESTA-009':30};
+    var setup = (_setupMap[ct]||0) * grupos.length;
+    var cat   = CTS[ct] ? CTS[ct].categoria : (ROTEIRO_BASE[ct] ? ROTEIRO_BASE[ct].categoria : 'OUTRO');
+    var nome  = CTS[ct] ? CTS[ct].nome : (ROTEIRO_BASE[ct] ? ROTEIRO_BASE[ct].nome : '');
 
     CTS[ct] = {
       ct:ct, categoria:cat, nome:nome,
