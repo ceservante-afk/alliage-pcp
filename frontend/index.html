@@ -588,7 +588,120 @@ async function loadAdminBases(){
   html += '</div>';
 
   html += '</div>';
+
+  // ── VISUALIZAÇÃO DAS BASES ───────────────────────────────────────────────
+  html += '<div style="border-top:1px solid var(--border);padding-top:16px">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:12px">👁 Consultar Bases Carregadas</div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
+  html += '<button class="edit-btn" onclick="verBaseRoteiro()">📋 Ver Roteiro</button>';
+  html += '<button class="edit-btn" onclick="verBaseGalva()">⚗ Ver Galva</button>';
+  html += '<button class="edit-btn" onclick="verBaseBom()">🧩 Ver BOM</button>';
+  html += '</div>';
+  html += '<div id="base-viewer" style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;max-height:400px;overflow:auto;font-size:9px;font-family:var(--mono);display:none"></div>';
+  html += '</div>';
+
   body.innerHTML = html;
+}
+
+// ── VISUALIZADORES DAS BASES ─────────────────────────────────────────────
+async function verBaseRoteiro(){
+  var el = document.getElementById('base-viewer');
+  el.style.display = 'block';
+  el.innerHTML = 'Carregando...';
+  try{
+    var res = await apiGet('/api/data/roteiro');
+    var data = res.data || {};
+    var codigos = Object.keys(data).sort();
+    var html = '<div style="margin-bottom:8px;color:var(--accent)">' + codigos.length + ' códigos · atualizado por ' + (res.uploaded_by||'?') + ' em ' + formatTs(res.uploaded_at) + '</div>';
+    html += '<input id="rot-search" type="text" placeholder="Filtrar código ou CT..." style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:10px;border-radius:2px;margin-bottom:8px" oninput="filtrarBaseViewer(this.value)">';
+    html += '<table style="width:100%;border-collapse:collapse" id="base-rot-tbl"><thead><tr>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Código</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">CT</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Op.</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Descrição</th>';
+    html += '<th style="text-align:right;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">INDIR</th>';
+    html += '</tr></thead><tbody>';
+    codigos.forEach(function(cod){
+      (data[cod]||[]).forEach(function(op, i){
+        html += '<tr style="border-bottom:1px solid rgba(30,58,95,.3)">';
+        html += '<td style="padding:2px 6px;color:var(--atn)">' + (i===0?cod:'') + '</td>';
+        html += '<td style="padding:2px 6px;color:var(--accent)">' + (op.ct||'') + '</td>';
+        html += '<td style="padding:2px 6px;color:var(--gray2)">' + (op.nro_op||'') + '</td>';
+        html += '<td style="padding:2px 6px;color:#e2e8f0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (op.descr_op||'') + '</td>';
+        html += '<td style="padding:2px 6px;text-align:right;color:var(--ok)">' + (op.indir||0).toFixed(3) + '</td>';
+        html += '</tr>';
+      });
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }catch(ex){ el.innerHTML = '<span style="color:var(--crt)">Erro: '+ex.message+'</span>'; }
+}
+
+async function verBaseGalva(){
+  var el = document.getElementById('base-viewer');
+  el.style.display = 'block';
+  el.innerHTML = 'Carregando...';
+  try{
+    var res = await apiGet('/api/data/galvamap');
+    var map = res.map || {};
+    var codigos = Object.keys(map).sort();
+    var html = '<div style="margin-bottom:8px;color:var(--accent)">' + codigos.length + ' códigos</div>';
+    html += '<input id="galva-search" type="text" placeholder="Filtrar código ou tratamento..." style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:10px;border-radius:2px;margin-bottom:8px" oninput="filtrarBaseViewer(this.value)">';
+    html += '<table style="width:100%;border-collapse:collapse"><thead><tr>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Código</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Tratamento</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">CT Destino</th>';
+    html += '</tr></thead><tbody>';
+    codigos.forEach(function(cod){
+      var trat = map[cod]||'';
+      var ct = trat.toUpperCase().indexOf('ANOD')>=0?'GALV-ANOD':'GALV-ZINC';
+      var cor = ct==='GALV-ANOD'?'#818CF8':'#34D399';
+      html += '<tr style="border-bottom:1px solid rgba(30,58,95,.3)">';
+      html += '<td style="padding:2px 6px;color:var(--atn)">' + cod + '</td>';
+      html += '<td style="padding:2px 6px;color:#e2e8f0">' + trat + '</td>';
+      html += '<td style="padding:2px 6px;color:'+cor+';font-weight:600">' + ct + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }catch(ex){ el.innerHTML = '<span style="color:var(--crt)">Erro: '+ex.message+'</span>'; }
+}
+
+async function verBaseBom(){
+  var el = document.getElementById('base-viewer');
+  el.style.display = 'block';
+  el.innerHTML = 'Carregando...';
+  try{
+    var res = await apiGet('/api/data/base_bom');
+    var data = res.data || {};
+    var pas = Object.keys(data).sort();
+    var html = '<div style="margin-bottom:8px;color:var(--accent)">' + pas.length + ' PAs · atualizado por ' + (res.uploaded_by||'?') + ' em ' + formatTs(res.uploaded_at) + '</div>';
+    html += '<input type="text" placeholder="Filtrar PA ou componente..." style="width:100%;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--accent);font-family:var(--mono);font-size:10px;border-radius:2px;margin-bottom:8px" oninput="filtrarBaseViewer(this.value)">';
+    html += '<table style="width:100%;border-collapse:collapse"><thead><tr>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">PA</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Filho</th>';
+    html += '<th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Descrição</th>';
+    html += '<th style="text-align:right;padding:3px 6px;border-bottom:1px solid var(--border);color:var(--gray2)">Qtd</th>';
+    html += '</tr></thead><tbody>';
+    pas.forEach(function(pa){
+      (data[pa]||[]).forEach(function(f, i){
+        html += '<tr style="border-bottom:1px solid rgba(30,58,95,.3)">';
+        html += '<td style="padding:2px 6px;color:var(--atn)">' + (i===0?pa:'') + '</td>';
+        html += '<td style="padding:2px 6px;color:var(--accent)">' + (f.filho||'') + '</td>';
+        html += '<td style="padding:2px 6px;color:#e2e8f0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (f.descr||'') + '</td>';
+        html += '<td style="padding:2px 6px;text-align:right;color:var(--ok)">' + (f.qtd||0) + '</td>';
+        html += '</tr>';
+      });
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }catch(ex){ el.innerHTML = '<span style="color:var(--crt)">Nenhuma BOM carregada ainda.</span>'; }
+}
+
+function filtrarBaseViewer(q){
+  var ql = q.toLowerCase();
+  var rows = document.querySelectorAll('#base-viewer tbody tr');
+  rows.forEach(function(tr){ tr.style.display = !ql || tr.textContent.toLowerCase().includes(ql) ? '' : 'none'; });
 }
 
 // ── PROCESSADORES DAS BASES ───────────────────────────────────────────────
@@ -1567,22 +1680,42 @@ function applyNewProg(rows){
     if(ct === 'GALV' || ct === 'GALV-001'){
       ct = resolveGalvaCt(r.c);
     }
-    // Resolver CT genérico PINP → buscar todas ops de pintura
+    // Resolver CT genérico PINP → todos os CTs PINP-xxx do roteiro (001, 002, 003...)
     if(ct === 'PINP'){
-      // Buscar no roteiro todos os CTs PINP-xxx para este codigo
+      var pinpProcessado = false;
       if(_baseRoteiro && _baseRoteiro[String(r.c)]){
         var pinpOps = _baseRoteiro[String(r.c)].filter(function(o){ return o.ct && o.ct.indexOf('PINP')===0; });
-        pinpOps.forEach(function(op){
-          if(!byct[op.ct]) byct[op.ct] = {};
-          if(!byct[op.ct][r.c]){
-            byct[op.ct][r.c] = {c:r.c, d:r.d, q:r.q, ops:[], ct_total:0, divergente:false, ct_roteiro:null};
-          }
-          byct[op.ct][r.c].ops.push({o:op.nro_op||'10', do:op.descr_op||'', i:op.indir||0, cm:Math.round((op.indir||0)*r.q*100)/100});
-        });
-      } else {
-        ct = findCtFromRoteiro(r.c, 'PINTURA') || 'PINP-002';
+        if(pinpOps.length){
+          pinpProcessado = true;
+          pinpOps.forEach(function(op){
+            if(!byct[op.ct]) byct[op.ct] = {};
+            if(!byct[op.ct][r.c]){
+              byct[op.ct][r.c] = {c:r.c, d:r.d, q:r.q, ops:[], ct_total:0, divergente:false, ct_roteiro:null};
+            }
+            byct[op.ct][r.c].ops.push({o:op.nro_op||'10', do:op.descr_op||'', i:op.indir||0, cm:Math.round((op.indir||0)*r.q*100)/100});
+          });
+        }
       }
-      if(ct === 'PINP') return; // já processado acima
+      // Fallback: ROTEIRO_BASE embutido
+      if(!pinpProcessado){
+        var _rcts = Object.keys(ROTEIRO_BASE).filter(function(k){ return k.indexOf('PINP')===0; });
+        _rcts.forEach(function(rct){
+          var _rg = (ROTEIRO_BASE[rct].grupos||[]).filter(function(g){ return g.c===r.c; });
+          if(_rg.length){
+            pinpProcessado = true;
+            if(!byct[rct]) byct[rct] = {};
+            if(!byct[rct][r.c]){
+              byct[rct][r.c] = {c:r.c, d:r.d, q:r.q, ops:[], ct_total:0, divergente:false, ct_roteiro:null};
+            }
+            (_rg[0].ops||[]).forEach(function(op){
+              byct[rct][r.c].ops.push({o:op.o, do:op.do, i:op.i, cm:Math.round(op.i*r.q*100)/100});
+            });
+          }
+        });
+      }
+      if(pinpProcessado) return;
+      // Último fallback: direcionar para PINP-002
+      ct = 'PINP-002';
     }
     if(!ct || ct === 'undefined'){
       ct = findCtFromRoteiro(r.c, r.sheet||'') || '';
