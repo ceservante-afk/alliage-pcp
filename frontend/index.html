@@ -469,14 +469,16 @@ setInterval(async function(){
 function openAdmin(){document.getElementById('admin-overlay').classList.add('open');loadAdminUsers();}
 function closeAdmin(){document.getElementById('admin-overlay').classList.remove('open');}
 document.getElementById('admin-overlay').onclick=function(ev){if(ev.target===this)closeAdmin();};
-document.querySelectorAll('.admin-tab').forEach(function(btn){
-  btn.onclick=function(){
-    document.querySelectorAll('.admin-tab').forEach(function(b){b.classList.remove('active');});
-    this.classList.add('active');
-    if(this.dataset.tab==='users')loadAdminUsers();
-    else if(this.dataset.tab==='log')loadAdminLog();
-    else if(this.dataset.tab==='bases')loadAdminBases();
-  };
+// Event delegation para admin tabs — cobre botões adicionados dinamicamente
+document.getElementById('admin-overlay').addEventListener('click', function(ev){
+  var btn = ev.target.closest('.admin-tab');
+  if(!btn) return;
+  document.querySelectorAll('.admin-tab').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  var tab = btn.dataset.tab;
+  if(tab==='users') loadAdminUsers();
+  else if(tab==='log') loadAdminLog();
+  else if(tab==='bases') loadAdminBases();
 });
 
 async function loadAdminUsers(){
