@@ -270,6 +270,7 @@ body{background:linear-gradient(180deg,#0F2540 0%,#0A1628 100%);background-attac
     <div class="admin-tabs">
       <button class="admin-tab active" data-tab="users">Usuários</button>
       <button class="admin-tab" data-tab="log">Log de Ações</button>
+      <button class="admin-tab" data-tab="bases">Bases de Dados</button>
     </div>
     <div class="admin-body" id="admin-body"></div>
   </div>
@@ -472,7 +473,9 @@ document.querySelectorAll('.admin-tab').forEach(function(btn){
   btn.onclick=function(){
     document.querySelectorAll('.admin-tab').forEach(function(b){b.classList.remove('active');});
     this.classList.add('active');
-    if(this.dataset.tab==='users')loadAdminUsers();else loadAdminLog();
+    if(this.dataset.tab==='users')loadAdminUsers();
+    else if(this.dataset.tab==='log')loadAdminLog();
+    else if(this.dataset.tab==='bases')loadAdminBases();
   };
 });
 
@@ -540,6 +543,154 @@ async function createUser(){
   }catch(ex){document.getElementById('nu-err').textContent=ex.message;}
 }
 
+async function loadAdminBases(){
+  var body = document.getElementById('admin-body');
+  body.innerHTML = '<p style="font-size:11px;color:var(--gray2);font-family:var(--mono)">Carregando...</p>';
+  var status = {};
+  try{ var s = await apiGet('/api/data/bases/status'); status = s; }catch(e){}
+
+  var html = '<div style="display:grid;gap:20px">';
+
+  // ── BASE ROTEIRO ────────────────────────────────────────────────────────
+  html += '<div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:6px">📋 Base de Roteiros (ZPP0002)</div>';
+  html += '<div style="font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px">';
+  html += status['Roteiro'] && status['Roteiro'].ok ? '✓ Última atualização: ' + formatTs(status['Roteiro'].uploaded_at) + ' por ' + status['Roteiro'].uploaded_by : '⚠ Nenhuma base carregada — usando roteiro embutido no HTML';
+  html += '</div>';
+  html += '<div class="upload-zone" style="padding:16px;position:relative"><input type="file" id="rot-base-file" accept=".xlsx,.xls" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">';
+  html += '<div style="font-size:11px;color:var(--gray2);font-family:var(--mono);text-align:center">📂 Clique para carregar ZPP0002 (.xlsx)</div></div>';
+  html += '<div id="rot-base-status" style="font-size:10px;font-family:var(--mono);margin-top:4px"></div>';
+  html += '<button class="edit-btn" style="margin-top:8px" onclick="processarBaseRoteiro()">Processar e Salvar Roteiro</button>';
+  html += '</div>';
+
+  // ── BASE GALVA ──────────────────────────────────────────────────────────
+  html += '<div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:6px">⚗ Base Galvanoplastia (BASE REAL)</div>';
+  html += '<div style="font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px">';
+  html += status['Galva Map'] && status['Galva Map'].ok ? '✓ Última atualização: ' + formatTs(status['Galva Map'].uploaded_at) + ' por ' + status['Galva Map'].uploaded_by : '⚠ Nenhuma base carregada';
+  html += '</div>';
+  html += '<div class="upload-zone" style="padding:16px;position:relative"><input type="file" id="galva-base-file" accept=".xlsx,.xls" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">';
+  html += '<div style="font-size:11px;color:var(--gray2);font-family:var(--mono);text-align:center">📂 Clique para carregar BASE_CONVERSAO_GALVA (.xlsx)</div></div>';
+  html += '<div id="galva-base-status" style="font-size:10px;font-family:var(--mono);margin-top:4px"></div>';
+  html += '<button class="edit-btn" style="margin-top:8px" onclick="processarBaseGalva()">Processar e Salvar Base Galva</button>';
+  html += '</div>';
+
+  // ── BASE BOM ────────────────────────────────────────────────────────────
+  html += '<div>';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:6px">🧩 Base BOM (CS12)</div>';
+  html += '<div style="font-size:10px;color:var(--gray2);font-family:var(--mono);margin-bottom:8px">';
+  html += status['BOM'] && status['BOM'].ok ? '✓ Última atualização: ' + formatTs(status['BOM'].uploaded_at) + ' por ' + status['BOM'].uploaded_by : '⚠ Nenhuma BOM carregada (necessária para Fase 2)';
+  html += '</div>';
+  html += '<div class="upload-zone" style="padding:16px;position:relative"><input type="file" id="bom-base-file" accept=".xlsx,.xls" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">';
+  html += '<div style="font-size:11px;color:var(--gray2);font-family:var(--mono);text-align:center">📂 Clique para carregar CS12 (.xlsx)</div></div>';
+  html += '<div id="bom-base-status" style="font-size:10px;font-family:var(--mono);margin-top:4px"></div>';
+  html += '<button class="edit-btn" style="margin-top:8px" onclick="processarBaseBom()">Processar e Salvar BOM</button>';
+  html += '</div>';
+
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+// ── PROCESSADORES DAS BASES ───────────────────────────────────────────────
+var _rotBaseData = null, _galvaBaseData = null, _bomBaseData = null;
+
+document.addEventListener('change', function(ev){
+  if(ev.target.id === 'rot-base-file') lerArquivoBase(ev.target, 'rot-base-status', function(wb){ _rotBaseData = wb; });
+  if(ev.target.id === 'galva-base-file') lerArquivoBase(ev.target, 'galva-base-status', function(wb){ _galvaBaseData = wb; });
+  if(ev.target.id === 'bom-base-file') lerArquivoBase(ev.target, 'bom-base-status', function(wb){ _bomBaseData = wb; });
+});
+
+function lerArquivoBase(input, statusId, cb){
+  var file = input.files[0]; if(!file) return;
+  var st = document.getElementById(statusId);
+  if(st) st.textContent = 'Lendo ' + file.name + '...';
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      if(st) st.textContent = '✓ Arquivo lido: ' + wb.SheetNames.join(', ');
+      cb(wb);
+    }catch(ex){ if(st) st.textContent = 'Erro: ' + ex.message; }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function processarBaseRoteiro(){
+  var st = document.getElementById('rot-base-status');
+  if(!_rotBaseData){ if(st) st.textContent = 'Selecione um arquivo primeiro.'; return; }
+  if(st) st.textContent = 'Processando...';
+  try{
+    // Lê sheet Plan1 — colunas: Codigo do (2), Centro de2 (6), Nro. Opera (7), Descricao da Operacao (8), INDIR (18), SETUP (17)
+    var ws = _rotBaseData.Sheets[_rotBaseData.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    var base = {};
+    rows.forEach(function(r){
+      var cod = String(r['Codigo do']||'').trim();
+      var ct  = String(r['Centro de2']||'').trim();
+      var indir = parseFloat(r['INDIR']||0);
+      var setup = parseFloat(r['SETUP']||0);
+      var nro   = String(r['Nro. Opera']||'10').trim();
+      var descr = String(r['Descrição da Operação']||'').trim();
+      if(!cod || !ct) return;
+      if(!base[cod]) base[cod] = [];
+      base[cod].push({ct:ct, nro_op:nro, descr_op:descr, indir:indir, setup:setup});
+    });
+    if(st) st.textContent = 'Salvando ' + Object.keys(base).length + ' códigos...';
+    await apiPost('/api/data/base_roteiro', {data: base});
+    _baseRoteiro = base;
+    if(st) st.textContent = '✓ Base de roteiro salva: ' + Object.keys(base).length + ' códigos';
+  }catch(ex){ if(st) st.textContent = 'Erro: ' + ex.message; }
+}
+
+async function processarBaseGalva(){
+  var st = document.getElementById('galva-base-status');
+  if(!_galvaBaseData){ if(st) st.textContent = 'Selecione um arquivo primeiro.'; return; }
+  if(st) st.textContent = 'Processando...';
+  try{
+    // Ler aba BASE REAL — colunas: Cód. Material (0), TRATAMENTO (9)
+    var sheetName = _galvaBaseData.SheetNames.indexOf('BASE REAL') >= 0 ? 'BASE REAL' : _galvaBaseData.SheetNames[0];
+    var ws = _galvaBaseData.Sheets[sheetName];
+    var rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    var map = {};
+    rows.forEach(function(r){
+      var cod  = String(r['Cód. Material']||'').trim();
+      var trat = String(r['TRATAMENTO']||'').trim().toUpperCase();
+      if(cod && trat) map[cod] = trat;
+    });
+    if(st) st.textContent = 'Salvando ' + Object.keys(map).length + ' registros...';
+    await apiPost('/api/data/galvamap', {map: map});
+    _baseGalva = map;
+    if(st) st.textContent = '✓ Base galva salva: ' + Object.keys(map).length + ' códigos';
+  }catch(ex){ if(st) st.textContent = 'Erro: ' + ex.message; }
+}
+
+async function processarBaseBom(){
+  var st = document.getElementById('bom-base-status');
+  if(!_bomBaseData){ if(st) st.textContent = 'Selecione um arquivo primeiro.'; return; }
+  if(st) st.textContent = 'Processando...';
+  try{
+    // Ler CS12 — colunas: Entrada em tabela (PA nivel 1), Nível explosão, Nº componente, Texto breve objeto, Qtd.componente
+    var ws = _bomBaseData.Sheets[_bomBaseData.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    var bom = {};
+    var currentPa = null;
+    rows.forEach(function(r){
+      var nivel = String(r['Nível explosão']||'').trim();
+      var cod   = String(r['Nº componente']||'').trim();
+      var descr = String(r['Texto breve objeto']||'').trim();
+      var qtd   = parseFloat(r['Qtd.componente (UMB)']||0);
+      if(nivel === '.1'){ currentPa = cod; if(!bom[cod]) bom[cod] = []; }
+      else if(nivel === '..2' && currentPa){
+        bom[currentPa].push({filho:cod, descr:descr, qtd:qtd});
+      }
+    });
+    if(st) st.textContent = 'Salvando ' + Object.keys(bom).length + ' PAs...';
+    await apiPost('/api/data/base_bom', {data: bom});
+    _baseBom = bom;
+    if(st) st.textContent = '✓ BOM salva: ' + Object.keys(bom).length + ' PAs';
+  }catch(ex){ if(st) st.textContent = 'Erro: ' + ex.message; }
+}
+
 async function loadAdminLog(){
   var body=document.getElementById('admin-body');
   body.innerHTML='<p style="font-size:11px;color:var(--gray2);font-family:var(--mono)">Carregando...</p>';
@@ -602,6 +753,46 @@ async function resolverCtsAcab(rows){
 // Carregar mapa galva ao iniciar
 setTimeout(loadGalvaMap, 3000);
 
+// ── CARREGAR BASES DO SERVIDOR ───────────────────────────────────────────────
+async function loadBaseRoteiro(){
+  try{
+    var res = await apiGet('/api/data/roteiro');
+    _baseRoteiro = res.data || {};
+    console.log('Base roteiro carregada:', Object.keys(_baseRoteiro).length, 'codigos');
+  }catch(e){ _baseRoteiro = {}; }
+}
+
+async function loadBaseGalva(){
+  try{
+    var res = await apiGet('/api/data/galvamap');
+    _baseGalva = res.map || {};
+    console.log('Base galva carregada:', Object.keys(_baseGalva).length, 'codigos');
+  }catch(e){ _baseGalva = {}; }
+}
+
+async function loadAllBases(){
+  await Promise.all([loadBaseRoteiro(), loadBaseGalva()]);
+}
+
+// Resolver CT da galva pelo codigo
+function resolveGalvaCt(codigo){
+  if(!_baseGalva) return 'GALV-ZINC';
+  var trat = (_baseGalva[String(codigo)] || '').toUpperCase();
+  return trat.indexOf('ANOD') >= 0 ? 'GALV-ANOD' : 'GALV-ZINC';
+}
+
+// Buscar ops do roteiro para um codigo+CT
+function getOpsFromBase(codigo, ct){
+  if(!_baseRoteiro) return null;
+  var ops = _baseRoteiro[String(codigo)];
+  if(!ops || !ops.length) return null;
+  // Filtrar pelo CT (se CT especificado)
+  var filtradas = ct ? ops.filter(function(o){ return o.ct === ct; }) : ops;
+  return filtradas.length ? filtradas : null;
+}
+
+setTimeout(loadAllBases, 1000);
+
 
 // Auto-login se tiver token
 window.__DATA__=JSON.parse(document.getElementById("__json__").textContent);
@@ -610,6 +801,10 @@ var CTS=RAW.cts;
 var SETORES=RAW.setores;
 // Roteiro base — preservado para sempre, nunca sobrescrito por upload/reset
 var ROTEIRO_BASE = JSON.parse(JSON.stringify(RAW.cts));
+// Cache das bases do servidor (carregadas assincronamente)
+var _baseRoteiro = null;   // {codigo: [{ct, nro_op, descr_op, indir}]}
+var _baseGalva   = null;   // {codigo: 'ANODIZACAO' | 'ZINCAGEM'}
+var _baseBom     = null;   // {pa: [{filho, descr, qtd}]}
 
 var CAT_CFG={'ESTAMPARIA':{accent:'#7DD3FC',icon:'⬡'},'USINAGEM':{accent:'#34D399',icon:'⚙'},'MICRO/USINAGEM':{accent:'#FBBF24',icon:'◈'},'PINTURA':{accent:'#818CF8',icon:'▣'},'GALVANOPLASTIA':{accent:'#34D399',icon:'◉'},'SOLDA ELÉTRICA':{accent:'#FB923C',icon:'⚡'}};
 var ctCfg={};
@@ -1302,8 +1497,9 @@ document.getElementById('prog-apply').onclick = async function(){
     rowsToProcess = await resolverCtsAcab(progData);
   }
 
-  // Aplicar localmente
+  // Aplicar localmente e renderizar imediatamente
   applyNewProg(rowsToProcess);
+  renderTotais(); renderPlanta();
 
   // Salvar no servidor
   var semana = 'Semana '+new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
@@ -1338,7 +1534,19 @@ function applyNewProg(rows){
   // Para itens sem CT, tentar encontrar pelo roteiro atual
   function findCtFromRoteiro(cod, sheet){
     var cat = sheetCat[sheet] || '';
-    // Buscar sempre no roteiro base (preservado mesmo após reset)
+    // 1. Tentar na base do servidor (_baseRoteiro)
+    if(_baseRoteiro && _baseRoteiro[String(cod)]){
+      var ops = _baseRoteiro[String(cod)];
+      // Filtrar pelo setor da aba se possível
+      if(cat){
+        var filtrado = ops.filter(function(o){
+          return o.ct && CTS[o.ct] && CTS[o.ct].categoria === cat;
+        });
+        if(filtrado.length) return filtrado[0].ct;
+      }
+      if(ops.length) return ops[0].ct;
+    }
+    // 2. Fallback: ROTEIRO_BASE embutido no HTML
     var cts = Object.keys(ROTEIRO_BASE);
     for(var i=0;i<cts.length;i++){
       var ct = cts[i];
@@ -1348,17 +1556,34 @@ function applyNewProg(rows){
         if(grupos[j].c === cod) return ct;
       }
     }
-    // Fallback: qualquer CT do setor
-    for(var i=0;i<cts.length;i++){
-      if(cat && ROTEIRO_BASE[cts[i]].categoria === cat) return cts[i];
-    }
     return null;
   }
 
   // Agrupar por CT — resolver CT vazio pelo roteiro
   var byct = {};
   rows.forEach(function(r){
-    var ct = r.ct;
+    var ct = r.ct ? String(r.ct).trim() : '';
+    // Resolver CT genérico GALV → GALV-ZINC ou GALV-ANOD
+    if(ct === 'GALV' || ct === 'GALV-001'){
+      ct = resolveGalvaCt(r.c);
+    }
+    // Resolver CT genérico PINP → buscar todas ops de pintura
+    if(ct === 'PINP'){
+      // Buscar no roteiro todos os CTs PINP-xxx para este codigo
+      if(_baseRoteiro && _baseRoteiro[String(r.c)]){
+        var pinpOps = _baseRoteiro[String(r.c)].filter(function(o){ return o.ct && o.ct.indexOf('PINP')===0; });
+        pinpOps.forEach(function(op){
+          if(!byct[op.ct]) byct[op.ct] = {};
+          if(!byct[op.ct][r.c]){
+            byct[op.ct][r.c] = {c:r.c, d:r.d, q:r.q, ops:[], ct_total:0, divergente:false, ct_roteiro:null};
+          }
+          byct[op.ct][r.c].ops.push({o:op.nro_op||'10', do:op.descr_op||'', i:op.indir||0, cm:Math.round((op.indir||0)*r.q*100)/100});
+        });
+      } else {
+        ct = findCtFromRoteiro(r.c, 'PINTURA') || 'PINP-002';
+      }
+      if(ct === 'PINP') return; // já processado acima
+    }
     if(!ct || ct === 'undefined'){
       ct = findCtFromRoteiro(r.c, r.sheet||'') || '';
     }
@@ -1375,10 +1600,16 @@ function applyNewProg(rows){
   Object.keys(byct).forEach(function(ct){
     Object.keys(byct[ct]).forEach(function(cod){
       var g = byct[ct][cod];
-      // Buscar INDIR sempre do roteiro base (nunca zerado por reset)
+      // Buscar INDIR: 1) base servidor, 2) ROTEIRO_BASE embutido
+      var _serverOps = getOpsFromBase(cod, ct);
       var existCT = ROTEIRO_BASE[ct] || CTS[ct];
       var existG  = existCT ? (existCT.grupos||[]).filter(function(x){return x.c===cod;})[0] : null;
-      if(existG && existG.ops && existG.ops.length){
+      if(_serverOps && _serverOps.length){
+        // Usar ops da base do servidor
+        g.ops = _serverOps.map(function(op){
+          return {o:op.nro_op||'10', do:op.descr_op||'', i:op.indir||0, cm:Math.round((op.indir||0)*g.q*100)/100};
+        });
+      } else if(existG && existG.ops && existG.ops.length){
         g.ops = existG.ops.map(function(op){
           return {o:op.o, do:op.do, i:op.i, cm:Math.round(op.i*g.q*100)/100};
         });
