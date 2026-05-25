@@ -150,6 +150,12 @@ def init_db():
             """CREATE TABLE IF NOT EXISTS edit_log (
                 id SERIAL PRIMARY KEY, username TEXT, action TEXT, detail TEXT,
                 ts TEXT DEFAULT (NOW()::text))""",
+            """CREATE TABLE IF NOT EXISTS base_bom (
+                id SERIAL PRIMARY KEY, data_json TEXT NOT NULL, uploaded_by TEXT,
+                uploaded_at TEXT DEFAULT (NOW()::text))""",
+            """CREATE TABLE IF NOT EXISTS base_roteiro (
+                id SERIAL PRIMARY KEY, data_json TEXT NOT NULL, uploaded_by TEXT,
+                uploaded_at TEXT DEFAULT (NOW()::text))""",
         ]
         for s in stmts:
             conn.run(s)
@@ -169,6 +175,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS roteiro_data (id INTEGER PRIMARY KEY AUTOINCREMENT, data_json TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT DEFAULT (datetime('now')));
         CREATE TABLE IF NOT EXISTS galva_map (id INTEGER PRIMARY KEY AUTOINCREMENT, map_json TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT DEFAULT (datetime('now')));
         CREATE TABLE IF NOT EXISTS edit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, action TEXT, detail TEXT, ts TEXT DEFAULT (datetime('now')));
+        CREATE TABLE IF NOT EXISTS base_bom (id INTEGER PRIMARY KEY AUTOINCREMENT, data_json TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT DEFAULT (datetime('now')));
+        CREATE TABLE IF NOT EXISTS base_roteiro (id INTEGER PRIMARY KEY AUTOINCREMENT, data_json TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT DEFAULT (datetime('now')));
         """)
         if not conn.execute("SELECT id FROM users WHERE username='admin'").fetchone():
             conn.execute("INSERT INTO users (username,full_name,password_hash,role) VALUES (?,?,?,?)",
@@ -224,51 +232,10 @@ def me(user=Depends(get_current_user)):
 
 @app.get("/api/data/prog")
 def get_prog(db: DB=Depends(get_db_wrapper)):
-    # Buscar o registro mais recente de cada grupo e mesclar os CTs
-    if USE_PG:
-        rows = db.fetchall(
-            "SELECT DISTINCT ON (grupo) grupo,data_json,uploaded_by,uploaded_at,semana "
-            "FROM prog_data ORDER BY grupo, id DESC"
-        )
-    else:
-        rows = db.fetchall(
-            "SELECT grupo,data_json,uploaded_by,uploaded_at,semana FROM prog_data "
-            "WHERE id IN (SELECT MAX(id) FROM prog_data GROUP BY grupo) ORDER BY id DESC"
-        )
-    if not rows:
-        raise HTTPException(404,"Nenhuma programacao carregada")
-
-    # Mesclar dados: CTs de cada grupo são independentes
-    merged_cts = {}
-    merged_setores = {}
-    last_row = rows[0]  # metadados do registro mais recente
-
-    for row in reversed(rows):  # mais antigos primeiro, mais recentes sobrescrevem
-        d = json.loads(row["data_json"])
-        merged_cts.update(d.get("cts") or {})
-        merged_setores.update(d.get("setores") or {})
-        last_row = row  # o último processado é o mais recente
-
-    # Recalcular carga dos setores com base nos CTs mesclados
-    for cat, setor in merged_setores.items():
-        total_h = 0
-        total_n = 0
-        for ct in setor.get("cts", []):
-            if ct in merged_cts:
-                total_h += merged_cts[ct].get("carga_total_h", 0)
-                total_n += merged_cts[ct].get("n_itens", 0)
-        setor["carga_h"] = round(total_h, 2)
-        setor["n_itens"] = total_n
-
-    merged_data = {"cts": merged_cts, "setores": merged_setores}
-
-    return {
-        "data": merged_data,
-        "uploaded_by": last_row["uploaded_by"],
-        "uploaded_at": last_row["uploaded_at"],
-        "semana": last_row.get("semana"),
-        "grupo": last_row.get("grupo")
-    }
+    row = db.fetchone("SELECT * FROM prog_data ORDER BY id DESC LIMIT 1")
+    if not row: raise HTTPException(404,"Nenhuma programacao carregada")
+    return {"data":json.loads(row["data_json"]),"uploaded_by":row["uploaded_by"],
+            "uploaded_at":row["uploaded_at"],"semana":row.get("semana"),"grupo":row.get("grupo")}
 
 @app.get("/api/data/prog/status")
 def get_prog_status(db: DB=Depends(get_db_wrapper)):
@@ -322,6 +289,19 @@ def get_galvamap(db: DB=Depends(get_db_wrapper)):
     if not row: return {"map":{},"uploaded_by":None,"uploaded_at":None}
     return {"map":json.loads(row["map_json"]),"uploaded_by":row["uploaded_by"],"uploaded_at":row["uploaded_at"]}
 
+@app.get("/api/data/galvamap/resolve/{codigo}")
+def resolve_galva(codigo: str, db: DB=Depends(get_db_wrapper)):
+    """Resolve codigo galva -> GALV-ZINC ou GALV-ANOD baseado na BASE REAL"""
+    row = db.fetchone("SELECT * FROM galva_map ORDER BY id DESC LIMIT 1")
+    if not row: return {"codigo": codigo, "ct": "GALV-ZINC"}  # default
+    galva_map = json.loads(row["map_json"])
+    trat = galva_map.get(str(codigo), "").upper()
+    if "ANOD" in trat:
+        ct = "GALV-ANOD"
+    else:
+        ct = "GALV-ZINC"
+    return {"codigo": codigo, "ct": ct, "tratamento": trat}
+
 @app.post("/api/data/galvamap")
 def upload_galvamap(payload: dict, user=Depends(require_role("admin")), db: DB=Depends(get_db_wrapper)):
     db.exec("INSERT INTO galva_map (map_json,uploaded_by) VALUES (?,?)",
@@ -331,15 +311,82 @@ def upload_galvamap(payload: dict, user=Depends(require_role("admin")), db: DB=D
 
 @app.get("/api/data/roteiro")
 def get_roteiro(db: DB=Depends(get_db_wrapper)):
-    row = db.fetchone("SELECT * FROM roteiro_data ORDER BY id DESC LIMIT 1")
+    # Tenta base_roteiro primeiro (upload via painel), cai em roteiro_data como fallback
+    row = db.fetchone("SELECT * FROM base_roteiro ORDER BY id DESC LIMIT 1")
+    if not row:
+        row = db.fetchone("SELECT * FROM roteiro_data ORDER BY id DESC LIMIT 1")
     if not row: raise HTTPException(404,"Nenhum roteiro carregado")
     return {"data":json.loads(row["data_json"]),"uploaded_by":row["uploaded_by"],"uploaded_at":row["uploaded_at"]}
+
+@app.get("/api/data/roteiro/codigo/{codigo}")
+def get_roteiro_codigo(codigo: str, db: DB=Depends(get_db_wrapper)):
+    """Retorna todas as operações de um código específico do roteiro"""
+    row = db.fetchone("SELECT * FROM base_roteiro ORDER BY id DESC LIMIT 1")
+    if not row:
+        row = db.fetchone("SELECT * FROM roteiro_data ORDER BY id DESC LIMIT 1")
+    if not row: return {"ops": []}
+    data = json.loads(row["data_json"])
+    # data é dict: {codigo: [{ct, nro_op, descr_op, indir}, ...]}
+    ops = data.get(codigo, [])
+    return {"codigo": codigo, "ops": ops}
+
+@app.post("/api/data/base_roteiro")
+def upload_base_roteiro(payload: dict, user=Depends(require_role("admin","pcp_metal","pcp_acab")), db: DB=Depends(get_db_wrapper)):
+    """
+    Recebe roteiro processado: {codigo: [{ct, nro_op, descr_op, indir, setup}]}
+    """
+    data = payload.get("data", {})
+    db.exec("INSERT INTO base_roteiro (data_json, uploaded_by) VALUES (?,?)",
+            (json.dumps(data), user["username"]))
+    db.log(user["username"], "upload_base_roteiro", f"{len(data)} codigos")
+    return {"ok": True, "codigos": len(data)}
 
 @app.post("/api/data/roteiro")
 def upload_roteiro(payload: dict, user=Depends(require_role("admin","pcp_metal","pcp_acab")), db: DB=Depends(get_db_wrapper)):
     db.exec("INSERT INTO roteiro_data (data_json,uploaded_by) VALUES (?,?)",
             (json.dumps(payload.get("data",{})),user["username"]))
     return {"ok":True}
+
+@app.post("/api/data/base_bom")
+def upload_base_bom(payload: dict, user=Depends(require_role("admin")), db: DB=Depends(get_db_wrapper)):
+    """
+    Recebe BOM processada: {pa: [{filho, descr, qtd}]}
+    """
+    data = payload.get("data", {})
+    db.exec("INSERT INTO base_bom (data_json, uploaded_by) VALUES (?,?)",
+            (json.dumps(data), user["username"]))
+    db.log(user["username"], "upload_base_bom", f"{len(data)} PAs")
+    return {"ok": True, "pas": len(data)}
+
+@app.get("/api/data/base_bom")
+def get_base_bom(db: DB=Depends(get_db_wrapper)):
+    row = db.fetchone("SELECT * FROM base_bom ORDER BY id DESC LIMIT 1")
+    if not row: raise HTTPException(404, "Nenhuma BOM carregada")
+    return {"data": json.loads(row["data_json"]), "uploaded_by": row["uploaded_by"], "uploaded_at": row["uploaded_at"]}
+
+@app.get("/api/data/base_bom/{pa}")
+def get_bom_pa(pa: str, db: DB=Depends(get_db_wrapper)):
+    """Retorna filhos de um PA específico"""
+    row = db.fetchone("SELECT * FROM base_bom ORDER BY id DESC LIMIT 1")
+    if not row: raise HTTPException(404, "Nenhuma BOM carregada")
+    data = json.loads(row["data_json"])
+    filhos = data.get(pa, [])
+    return {"pa": pa, "filhos": filhos}
+
+@app.get("/api/data/bases/status")
+def get_bases_status(db: DB=Depends(get_db_wrapper)):
+    """Retorna status de upload de todas as bases"""
+    result = {}
+    for tabela, nome in [("base_roteiro","Roteiro"), ("galva_map","Galva Map"), ("base_bom","BOM")]:
+        try:
+            row = db.fetchone(f"SELECT uploaded_by, uploaded_at FROM {tabela} ORDER BY id DESC LIMIT 1")
+            if row:
+                result[nome] = {"uploaded_by": row["uploaded_by"], "uploaded_at": row["uploaded_at"], "ok": True}
+            else:
+                result[nome] = {"ok": False}
+        except:
+            result[nome] = {"ok": False}
+    return result
 
 @app.post("/api/data/edit")
 def save_edit(payload: dict, user=Depends(require_role("admin","pcp_metal","pcp_acab","fabricacao")), db: DB=Depends(get_db_wrapper)):
